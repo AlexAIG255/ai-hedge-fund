@@ -521,13 +521,20 @@ class MorningStockPickerAgent:
 
 
 # ==========================================
-# 🚀 启动控制逻辑（完美适配 GitHub Actions & Agent 模式）
+# 🚀 启动控制逻辑（防重复推送版）
 # ==========================================
 def main():
     agent = MorningStockPickerAgent()
     print("==================================================")
     print("🚀 Agent 1 [早盘选股 Agent] 启动，全策略搜寻中...")
     print("==================================================")
+
+    # 🛡️ 防重机制 1：启动前检查今日是否已完成推送
+    today_str = time.strftime("%Y-%m-%d")
+    history = agent.load_history()
+    if today_str in history and len(history[today_str]) > 0:
+        print(f"🛑 监测到今日 ({today_str}) 已完成过选股与推送，触发防重机制，程序停止。")
+        return
 
     success_count = 0
     for attempt in range(1, MAX_TOTAL_ATTEMPTS + 1):
@@ -539,21 +546,31 @@ def main():
 
         if report_md:
             print("\n" + report_md + "\n")
-            # 如果配置了 Dify，则推送到 Dify；无配置时在本地/Actions 运行输出
+            
+            pushed_wechat = False
+            pushed_dify = False
+
+            # 1. 尝试企业微信推送（若配置）
+            if hasattr(agent, "push_to_wechat_work"):
+                pushed_wechat = agent.push_to_wechat_work(report_md)
+
+            # 2. 尝试 Dify 推送（若配置）
             if DIFY_API_KEY:
-                if agent.push_to_dify(report_md):
-                    success_count += 1
-            else:
-                # 纯 GitHub 模式直接算作成功，输出本地 Markdown 研报
+                pushed_dify = agent.push_to_dify(report_md)
+
+            # 只要任意一种方式推送成功（或纯 GitHub 本地模式），即计为成功
+            if pushed_wechat or pushed_dify or (not DIFY_API_KEY and not os.environ.get("WECHAT_WEBHOOK")):
                 success_count += 1
 
             if success_count >= TARGET_SUCCESS_COUNT:
-                print("🛑 完成任务，停止轮询，今日选股结束。")
+                print("🛑 完成任务，今日选股推送结束。")
                 break
             else:
                 time.sleep(SUCCESS_WAIT_SECONDS)
         else:
-            time.sleep(FAILURE_WAIT_SECONDS)
+            # 🛡️ 防重机制 2：若触发 3 天重复熔断导致无新标的，不再无效休眠轮询，直接终止
+            print("⚠️ 今日标的均触发去重熔断或无符合策略标的，防止重复推送，停止轮询。")
+            break
 
 
 if __name__ == "__main__":
