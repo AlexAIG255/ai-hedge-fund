@@ -1,0 +1,30 @@
+name: 🧪 测试 Agent 1 (早盘选股 & 企微直推)
+
+on:
+  workflow_dispatch: # 支持网页端手动点击运行
+
+jobs:
+  run-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 2. 初始化 Python 环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: 3. 安装依赖库
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: 4. 执行选股与推送
+        env:
+          WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
+          MANUAL_TEST: "true" # 测试模式：只运行 1 次即成功退出
+        run: |
+          python hedge_fund/strategies/morning_picker.py
