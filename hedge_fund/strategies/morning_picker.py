@@ -419,7 +419,68 @@ class MorningStockPickerAgent:
         return final_items, report_markdown
 
     # ==========================================
-    # 📡 4. 远程 Dify 对接
+    # 📱 4. 企业微信机器人直连推送 (分段防拦截版)
+    # ==========================================
+    def push_to_wechat_work(self, report_markdown: str) -> bool:
+        """按段落切分并发送 Markdown 研报至企业微信，防止长文本被拦截"""
+        wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
+
+        if not wechat_url:
+            print("⚠️ 未配置 WECHAT_WEBHOOK，跳过企业微信推送。")
+            return False
+
+        # 企微单条安全阈值（建议不超过 1800 字符/段，留出 safe buffer）
+        MAX_CHUNK_SIZE = 1800
+
+        # 按双换行符（段落）切分，保证表格和 Markdown 格式不被打断
+        paragraphs = report_markdown.split("\n\n")
+        chunks = []
+        current_chunk = ""
+
+        for p in paragraphs:
+            if len(current_chunk) + len(p) + 2 > MAX_CHUNK_SIZE:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = p
+            else:
+                current_chunk = f"{current_chunk}\n\n{p}" if current_chunk else p
+
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        total_chunks = len(chunks)
+        print(f"📡 研报全长 {len(report_markdown)} 字，已自动切分为 {total_chunks} 段推送到企业微信...")
+
+        success_all = True
+        for idx, chunk in enumerate(chunks, 1):
+            # 如果文字较长分成了多段，在开头添加 (1/2)、(2/2) 标注
+            page_prefix = f"📄 **【选股研报 ({idx}/{total_chunks})】**\n\n" if total_chunks > 1 else ""
+            payload = {
+                "msgtype": "markdown",
+                "markdown": {
+                    "content": page_prefix + chunk
+                }
+            }
+
+            try:
+                res = requests.post(wechat_url, json=payload, timeout=10)
+                res_json = res.json()
+                if res_json.get("errcode") == 0:
+                    print(f"🎉 第 ({idx}/{total_chunks}) 段推送成功！")
+                else:
+                    print(f"❌ 第 ({idx}/{total_chunks}) 段推送失败: {res_json}")
+                    success_all = False
+            except Exception as e:
+                print(f"❌ 第 ({idx}/{total_chunks}) 段推送异常: {e}")
+                success_all = False
+
+            # 分段发送间休眠 1 秒，防止触发表格频率限制
+            if idx < total_chunks:
+                time.sleep(1)
+
+        return success_all
+    # ========================================== 
+    📡 4. 远程 Dify 对接
     # ==========================================
     def push_to_dify(self, report_markdown: str) -> bool:
         """提交至 Dify API 节点"""
