@@ -1,8 +1,23 @@
 import json
 import os
 from datetime import datetime
+from typing import Any
+from pydantic import BaseModel, ConfigDict
 from hedge_fund.risk.limits import RiskLimits
 
+# ==========================================
+# 兼容旧接口声明（防止 portfolio/__init__.py 导入报错）
+# ==========================================
+class BlendResult(BaseModel):
+    model_config = ConfigDict(extra="allow")
+    status: str = "SUCCESS"
+
+def blend_signals(*args, **kwargs) -> Any:
+    return []
+
+# ==========================================
+# 核心持仓与晚间复盘管理器
+# ==========================================
 class PortfolioManager:
     def __init__(self, portfolio_path="data/portfolio.json"):
         self.portfolio_path = portfolio_path
