@@ -5,9 +5,6 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict
 from hedge_fund.risk.limits import RiskLimits
 
-# ==========================================
-# 兼容旧接口声明（防止 portfolio/__init__.py 导入报错）
-# ==========================================
 class BlendResult(BaseModel):
     model_config = ConfigDict(extra="allow")
     status: str = "SUCCESS"
@@ -15,45 +12,55 @@ class BlendResult(BaseModel):
 def blend_signals(*args, **kwargs) -> Any:
     return []
 
-# ==========================================
-# 核心持仓与晚间复盘管理器
-# ==========================================
 class PortfolioManager:
     def __init__(self, portfolio_path="data/portfolio.json"):
         self.portfolio_path = portfolio_path
         self.limits = RiskLimits.load_from_config()
 
+    def _get_default_portfolio((self) -> dict:
+        """生成默认持仓结构"""
+        return {
+            "initial_capital": 100000.0,
+            "available_cash": 100000.0,
+            "total_equity": 100000.0,
+            "peak_equity": 100000.0,
+            "current_drawdown": 0.0,
+            "trade_status": "NORMAL",
+            "positions": [],
+            "trade_history": []
+        }
+
     def load_portfolio(self) -> dict:
-        """加载持仓与账户数据库"""
+        """加载持仓，不存在则自动初始化创建"""
+        os.makedirs(os.path.dirname(self.portfolio_path), exist_ok=True)
         if os.path.exists(self.portfolio_path):
             with open(self.portfolio_path, "r", encoding="utf-8") as f:
                 return json.load(f)
-        return {}
+        
+        # 不存在则新建默认文件
+        default_data = self._get_default_portfolio()
+        self.update_portfolio(default_data)
+        return default_data
 
     def update_portfolio(self, data: dict):
         """写入/更新持仓数据库"""
+        os.makedirs(os.path.dirname(self.portfolio_path), exist_ok=True)
         with open(self.portfolio_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
     def run_evening_review(self, closing_prices: dict = None) -> dict:
-        """
-        晚间复盘调仓引擎：更新账户总净值、刷新最高峰值、计算当前回撤，并判定止损与熔断
-        """
+        """晚间复盘调仓引擎"""
         closing_prices = closing_prices or {}
         portfolio = self.load_portfolio()
-        if not portfolio:
-            return {"status": "ERROR", "message": "data/portfolio.json 文件不存在"}
 
         market_value = 0.0
         rebalance_orders = []
 
-        # 1. 结算当前持仓市值并判断止损位
         for pos in portfolio.get("positions", []):
             symbol = pos["symbol"]
             curr_price = closing_prices.get(symbol, pos.get("cost_price", 0))
             market_value += pos.get("shares", 0) * curr_price
 
-            # 触及止损价，生成平仓指令
             if curr_price <= pos.get("stop_loss_price", 0):
                 rebalance_orders.append({
                     "symbol": symbol,
@@ -61,18 +68,15 @@ class PortfolioManager:
                     "reason": f"STOP_LOSS_TRIGGERED (Current: {curr_price} <= Stop: {pos['stop_loss_price']})"
                 })
 
-        # 2. 结算账户净值与历史最高点
-        available_cash = portfolio.get("available_cash", 0.0)
+        available_cash = portfolio.get("available_cash", 100000.0)
         total_equity = round(available_cash + market_value, 2)
         peak_equity = max(portfolio.get("peak_equity", total_equity), total_equity)
         drawdown = round((peak_equity - total_equity) / peak_equity, 4) if peak_equity > 0 else 0.0
 
-        # 3. 账户回撤熔断判定（达到 8% 触发硬防护）
         trade_status = "NORMAL"
         if drawdown >= self.limits.max_portfolio_drawdown:
             trade_status = "FREEZE_BUY_AND_HALVE_POSITIONS"
 
-        # 4. 自动更新并回写 data/portfolio.json
         portfolio["total_equity"] = total_equity
         portfolio["peak_equity"] = peak_equity
         portfolio["current_drawdown"] = drawdown
