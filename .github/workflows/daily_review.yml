@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: '30 7 * * 1-5'
 
+# 【关键配置】显式声明 Git 仓库写权限
+permissions:
+  contents: write
+
 concurrency:
   group: daily-review-${{ github.ref }}
   cancel-in-progress: true
