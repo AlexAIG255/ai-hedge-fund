@@ -1,13 +1,20 @@
 name: Daily Quant Review Test
 
 on:
-  workflow_dispatch: # 支持在 GitHub 网页端手动点击按钮一键测试
+  workflow_dispatch:
   schedule:
-    - cron: '30 7 * * 1-5' # 北京时间每个交易日 15:30 (UTC 07:30) 自动触发
+    - cron: '30 7 * * 1-5'
+
+# 【防重复锁】取消前一个未执行完的同类任务，防止死循环堆叠
+concurrency:
+  group: daily-review-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   run-review:
     runs-on: ubuntu-latest
+    timeout-minutes: 3 # 【防假死超时限制】超过 3 分钟自动强制杀死任务，防止卡死耗尽免费额度
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -27,7 +34,6 @@ jobs:
           python -c "
           from hedge_fund.portfolio.construction import PortfolioManager
           pm = PortfolioManager()
-          # 模拟行情测试数据
           test_prices = {'600519': 1600.0, '000001': 10.5}
           res = pm.run_evening_review(test_prices)
           print('=== 晚间复盘测试输出 ===')
@@ -39,5 +45,6 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add data/portfolio.json
+          # 【防无限触发】 [skip ci] 标记绝对不能删，防止 Commit 操作重新触发现发 Actions 死循环
           git commit -m "Auto-Update: Portfolio Data [skip ci]" || exit 0
           git push
