@@ -1,82 +1,45 @@
-"""Risk limits — hard caps the analysts cannot override.
-
-"Conviction requests, risk disposes": portfolio construction proposes target
-weights, and this stage clamps them against the fund's limits. Everything
-here is deterministic arithmetic — the LLM's influence over the book ends at
-the Signal, and no clamp is ever negotiable.
-
-Exposure removed by a clamp is NOT redistributed to other names; it stays in
-cash. Redistributing would let the risk stage *increase* positions, which
-inverts its job.
-"""
-
-from __future__ import annotations
-
-from typing import Literal
-
+import json
+import os
 from pydantic import BaseModel, ConfigDict, Field
 
-
 class RiskLimits(BaseModel):
-    """The fund's hard limits, set in its FundSpec."""
-
+    """账户硬性风控规则模型"""
     model_config = ConfigDict(extra="forbid")
 
-    max_position_pct: float = Field(
-        gt=0, le=1.0, description="max |weight| per ticker, as a fraction of equity"
-    )
-    max_gross_exposure: float = Field(
-        gt=0, description="max sum of |weights| across the book (1.0 = unlevered)"
-    )
+    max_position_pct: float = Field(default=0.20, description="单只股票最大仓位比例")
+    max_portfolio_drawdown: float = Field(default=0.08, description="账户最大允许总回撤")
+    max_daily_loss: float = Field(default=0.02, description="单日最大允许亏损比例")
+    default_stop_loss_pct: float = Field(default=0.05, description="默认单笔止损比例")
 
+    @classmethod
+    def load_from_config(cls, config_path="config/risk_rules.json") -> "RiskLimits":
+        """自动读取 config/risk_rules.json 的风控参数"""
+        if os.path.exists(config_path):
+            with open(config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return cls(
+                max_position_pct=data.get("max_single_stock_ratio", 0.20),
+                max_portfolio_drawdown=data.get("max_portfolio_drawdown_limit", 0.08),
+                max_daily_loss=data.get("max_daily_loss_limit", 0.02),
+                default_stop_loss_pct=data.get("default_stop_loss_ratio", 0.05)
+            )
+        return cls()
 
-class ClampEvent(BaseModel):
-    """One limit firing — recorded so every clamp is explainable."""
+def clamp_position_size(total_capital: float, entry_price: float, stop_loss_price: float, limits: RiskLimits) -> int:
+    """风控计算器：基于单笔最大风险与风控上限，计算最大可买股数"""
+    if entry_price <= 0 or stop_loss_price >= entry_price:
+        return 0
 
-    limit: Literal["max_position_pct", "max_gross_exposure"]
-    ticker: str | None = None  # None for the portfolio-level gross clamp
-    before: float
-    after: float
+    # 单笔交易允许的最大亏损金额
+    max_risk_amount = total_capital * limits.max_daily_loss
+    risk_per_share = entry_price - stop_loss_price
+    
+    # 按照风险推算的股数
+    shares_by_risk = int(max_risk_amount / risk_per_share)
+    
+    # 按照单票资金上限推算的股数
+    max_capital_allowed = total_capital * limits.max_position_pct
+    shares_by_cap = int(max_capital_allowed / entry_price)
 
-
-class RiskResult(BaseModel):
-    """Clamped weights plus the audit trail of every limit that fired."""
-
-    weights: dict[str, float]
-    clamps: list[ClampEvent]
-
-
-def apply_limits(weights: dict[str, float], limits: RiskLimits) -> RiskResult:
-    """Clamp target weights against the fund's hard limits.
-
-    Order matters and makes the pair idempotent:
-    1. Per-ticker cap: any |weight| above max_position_pct is clamped to the
-       cap, preserving sign. One ClampEvent per clamped ticker.
-    2. Gross cap: if the summed |weights| still exceed max_gross_exposure,
-       every weight is scaled down proportionally. Scaling only shrinks, so
-       it can never re-violate the per-ticker cap.
-    """
-    clamped: dict[str, float] = {}
-    clamps: list[ClampEvent] = []
-
-    for ticker in sorted(weights):
-        w = weights[ticker]
-        cap = limits.max_position_pct
-        if abs(w) > cap:
-            new_w = cap if w > 0 else -cap
-            clamps.append(ClampEvent(
-                limit="max_position_pct", ticker=ticker, before=w, after=new_w,
-            ))
-            clamped[ticker] = new_w
-        else:
-            clamped[ticker] = w
-
-    gross = sum(abs(w) for w in clamped.values())
-    if gross > limits.max_gross_exposure:
-        scale = limits.max_gross_exposure / gross
-        clamped = {t: w * scale for t, w in clamped.items()}
-        clamps.append(ClampEvent(
-            limit="max_gross_exposure", before=gross, after=limits.max_gross_exposure,
-        ))
-
-    return RiskResult(weights=clamped, clamps=clamps)
+    # 取两者的最小值（硬风控截断）
+    return max(0, min(shares_by_risk, shares_by_cap))
