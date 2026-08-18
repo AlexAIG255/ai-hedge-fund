@@ -1,0 +1,9 @@
+{
+  "max_single_stock_ratio": 0.20,
+  "max_total_industry_ratio": 0.35,
+  "max_portfolio_drawdown_limit": 0.08,
+  "max_daily_loss_limit": 0.02,
+  "default_stop_loss_ratio": 0.05,
+  "atr_stop_multiplier": 2.0,
+  "drawdown_action": "FREEZE_BUY_AND_HALVE_POSITIONS"
+}
