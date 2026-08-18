@@ -17,7 +17,7 @@ class PortfolioManager:
         self.portfolio_path = portfolio_path
         self.limits = RiskLimits.load_from_config()
 
-    def _get_default_portfolio((self) -> dict:
+    def _get_default_portfolio(self) -> dict:
         """生成默认持仓结构"""
         return {
             "initial_capital": 100000.0,
