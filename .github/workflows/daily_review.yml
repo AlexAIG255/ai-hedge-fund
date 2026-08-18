@@ -5,7 +5,6 @@ on:
   schedule:
     - cron: '30 7 * * 1-5'
 
-# 【防重复锁】取消前一个未执行完的同类任务，防止死循环堆叠
 concurrency:
   group: daily-review-${{ github.ref }}
   cancel-in-progress: true
@@ -13,7 +12,7 @@ concurrency:
 jobs:
   run-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 3 # 【防假死超时限制】超过 3 分钟自动强制杀死任务，防止卡死耗尽免费额度
+    timeout-minutes: 3
 
     steps:
       - name: Checkout Repository
@@ -44,7 +43,7 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add data/portfolio.json
-          # 【防无限触发】 [skip ci] 标记绝对不能删，防止 Commit 操作重新触发现发 Actions 死循环
+          mkdir -p data
+          git add data/
           git commit -m "Auto-Update: Portfolio Data [skip ci]" || exit 0
           git push
