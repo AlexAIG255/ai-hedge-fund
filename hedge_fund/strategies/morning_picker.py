@@ -479,8 +479,9 @@ class MorningStockPickerAgent:
                 time.sleep(1)
 
         return success_all
-    # ========================================== 
-    📡 4. 远程 Dify 对接
+
+    # ==========================================
+    # 📡 5. 远程 Dify 对接 (可选)
     # ==========================================
     def push_to_dify(self, report_markdown: str) -> bool:
         """提交至 Dify API 节点"""
