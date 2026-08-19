@@ -425,8 +425,9 @@ class MorningStockPickerAgent:
         """按段落切分并发送 Markdown 研报至企业微信，防止长文本被拦截"""
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
 
-        if not wechat_url:
-            print("⚠️ 未配置 WECHAT_WEBHOOK，跳过企业微信推送。")
+        # 严格校验 URL 合法性，防止 Invalid URL 抛错
+        if not wechat_url or not (wechat_url.startswith("http://") or wechat_url.startswith("https://")):
+            print("⚠️ 未配置有效的 WECHAT_WEBHOOK (需以 https:// 开头)，跳过企业微信推送。")
             return False
 
         # 企微单条安全阈值（建议不超过 1800 字符/段，留出 safe buffer）
@@ -453,7 +454,6 @@ class MorningStockPickerAgent:
 
         success_all = True
         for idx, chunk in enumerate(chunks, 1):
-            # 如果文字较长分成了多段，在开头添加 (1/2)、(2/2) 标注
             page_prefix = f"📄 **【选股研报 ({idx}/{total_chunks})】**\n\n" if total_chunks > 1 else ""
             payload = {
                 "msgtype": "markdown",
@@ -474,7 +474,6 @@ class MorningStockPickerAgent:
                 print(f"❌ 第 ({idx}/{total_chunks}) 段推送异常: {e}")
                 success_all = False
 
-            # 分段发送间休眠 1 秒，防止触发表格频率限制
             if idx < total_chunks:
                 time.sleep(1)
 
