@@ -247,12 +247,57 @@ class EveningReviewAgent:
 
     def push_wechat(self, msg: str):
         url = os.environ.get("WECHAT_WEBHOOK", "").strip()
-        if url:
+        if not url:
+            print("⚠️ 未配置 WECHAT_WEBHOOK，跳过推送。")
+            return
+
+        headers = {"Content-Type": "application/json"}
+        
+        # 企微单条 Markdown 限制 4096 字节，设定 3000 字节安全阈值进行切片
+        max_bytes = 3000
+        msg_bytes = msg.encode("utf-8")
+
+        if len(msg_bytes) <= max_bytes:
+            chunks = [msg]
+        else:
+            # 按行切片，防止截断 Markdown 语法格式
+            lines = msg.split("\n")
+            chunks = []
+            current_chunk = ""
+            
+            for line in lines:
+                test_chunk = current_chunk + ("\n" if current_chunk else "") + line
+                if len(test_chunk.encode("utf-8")) > max_bytes:
+                    if current_chunk:
+                        chunks.append(current_chunk)
+                    current_chunk = line
+                else:
+                    current_chunk = test_chunk
+            if current_chunk:
+                chunks.append(current_chunk)
+
+        print(f"📦 消息总长 {len(msg_bytes)} 字节，已自动切分为 {len(chunks)} 条发送...")
+
+        for idx, chunk in enumerate(chunks, 1):
+            payload = {
+                "msgtype": "markdown",
+                "markdown": {
+                    "content": chunk
+                }
+            }
             try:
-                requests.post(url, json={"msgtype": "markdown", "markdown": {"content": msg}}, timeout=10)
-                print("✅ 微信推送成功！")
+                res = requests.post(url, json=payload, headers=headers, timeout=10)
+                res_json = res.json()
+                if res_json.get("errcode") == 0:
+                    print(f"✅ 第 {idx}/{len(chunks)} 条微信推送成功！")
+                else:
+                    print(f"❌ 第 {idx}/{len(chunks)} 条发送被企微拒绝: {res_json}")
             except Exception as e:
-                print(f"❌ 微信推送失败: {e}")
+                print(f"❌ 第 {idx}/{len(chunks)} 条网络请求失败: {e}")
+            
+            # 停顿 0.5 秒防止发送频控
+            time.sleep(0.5)
+
 
 
 def main():
