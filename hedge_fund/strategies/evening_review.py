@@ -42,29 +42,70 @@ class EveningReviewAgent:
         return {}
 
     def fetch_market_quotes(self, codes: list) -> dict:
-        """获取盘后最新行情"""
+        """获取盘后最新行情（增加新浪财经备用接口，防止东财海外IP拦截）"""
         if not codes:
             return {}
         quotes = {}
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        
+        # --- 策略 1: 东方财富 API ---
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        }
         secids = [f"0.{c}" if (c.startswith("00") or c.startswith("30")) else f"1.{c}" for c in set(codes)]
         url = "http://push2.eastmoney.com/api/qt/ulist/get"
         params = {"fltt": "2", "fields": "f12,f14,f2,f3,f15,f16", "secids": ",".join(secids)}
         
         try:
-            res = requests.get(url, headers=headers, params=params, timeout=10)
+            res = requests.get(url, headers=headers, params=params, timeout=8)
             if res.status_code == 200:
                 data = res.json().get("data")
                 if data and "diff" in data:
                     for item in data["diff"]:
-                        quotes[str(item["f12"])] = {
-                            "close": float(item.get("f2", 0.0) or 0.0),
-                            "pct": float(item.get("f3", 0.0) or 0.0),
-                            "high": float(item.get("f15", 0.0) or 0.0),
-                            "low": float(item.get("f16", 0.0) or 0.0),
-                        }
+                        close_p = item.get("f2")
+                        if close_p is not None and close_p != "-":
+                            quotes[str(item["f12"])] = {
+                                "close": float(close_p),
+                                "pct": float(item.get("f3", 0.0) or 0.0),
+                                "high": float(item.get("f15", 0.0) or 0.0),
+                                "low": float(item.get("f16", 0.0) or 0.0),
+                            }
         except Exception as e:
-            print(f"❌ 获取收盘价失败: {e}")
+            print(f"⚠️ 东财行情 API 获取失败，准备切换备用源: {e}")
+
+        # --- 策略 2: 新浪财经 API (备用，专门应对东财海外IP封禁) ---
+        missing_codes = [c for c in set(codes) if c not in quotes or quotes[c]["close"] == 0.0]
+        if missing_codes:
+            try:
+                sina_codes = [f"sh{c}" if c.startswith("6") else f"sz{c}" for c in missing_codes]
+                sina_url = f"http://hq.sinajs.cn/list={','.join(sina_codes)}"
+                sina_headers = {"Referer": "http://finance.sina.com.cn", "User-Agent": headers["User-Agent"]}
+                res = requests.get(sina_url, headers=sina_headers, timeout=8)
+                if res.status_code == 200:
+                    lines = res.text.strip().split("\n")
+                    for line in lines:
+                        if '="' in line:
+                            code = line.split('str_s_')[1].split('=')[0][2:] if 'str_s_' in line else line.split('var hq_str_')[1].split('=')[0][2:]
+                            content = line.split('"')[1]
+                            parts = content.split(',')
+                            if len(parts) > 3:
+                                close_p = float(parts[3]) # 当前/收盘价
+                                open_p = float(parts[1])
+                                pct = ((close_p - float(parts[2])) / float(parts[2]) * 100) if float(parts[2]) > 0 else 0.0
+                                quotes[code] = {
+                                    "close": close_p,
+                                    "pct": pct,
+                                    "high": float(parts[4]),
+                                    "low": float(parts[5]),
+                                }
+            except Exception as e:
+                print(f"⚠️ 新浪行情 API 补充失败: {e}")
+
+        # --- 降级处理：防止未拉到价格导致系统算出 0 元和 -100% 收益 ---
+        for c in codes:
+            if c not in quotes or quotes[c]["close"] == 0.0:
+                print(f"⚠️ 标的 {c} 未能获取到最新价格，使用买入保底价兜底以防误杀。")
+                quotes[c] = {"close": 0.0, "pct": 0.0, "high": 0.0, "low": 0.0, "is_mock": True}
+
         return quotes
 
     def generate_review_report(self) -> str:
