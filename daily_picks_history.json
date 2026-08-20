@@ -1,1 +1,124 @@
-{}
+{
+  "2026-08-20": [
+    {
+      "code": "600266",
+      "name": "城建发展",
+      "strategy": "🌸 出水芙蓉突破",
+      "pick_price": 4.33,
+      "stop_loss": 4.11,
+      "target_price": 4.68,
+      "entry_range": "4.27~4.35元",
+      "trend_iq": 85,
+      "risk_stars": 1,
+      "pct_at_pick": "+4.09%"
+    },
+    {
+      "code": "600267",
+      "name": "海正药业",
+      "strategy": "🌸 出水芙蓉突破",
+      "pick_price": 14.18,
+      "stop_loss": 13.47,
+      "target_price": 15.31,
+      "entry_range": "13.97~14.25元",
+      "trend_iq": 84,
+      "risk_stars": 1,
+      "pct_at_pick": "+2.83%"
+    },
+    {
+      "code": "600216",
+      "name": "浙江医药",
+      "strategy": "🔄 强劲反包蓄势",
+      "pick_price": 14.16,
+      "stop_loss": 13.45,
+      "target_price": 15.29,
+      "entry_range": "13.95~14.23元",
+      "trend_iq": 83,
+      "risk_stars": 1,
+      "pct_at_pick": "+1.65%"
+    },
+    {
+      "code": "600246",
+      "name": "万通发展",
+      "strategy": "🔄 强劲反包蓄势",
+      "pick_price": 11.9,
+      "stop_loss": 11.3,
+      "target_price": 12.85,
+      "entry_range": "11.72~11.96元",
+      "trend_iq": 77,
+      "risk_stars": 1,
+      "pct_at_pick": "-2.46%"
+    },
+    {
+      "code": "600330",
+      "name": "天通股份",
+      "strategy": "🚀 右侧刚启动",
+      "pick_price": 28.36,
+      "stop_loss": 26.94,
+      "target_price": 30.63,
+      "entry_range": "27.93~28.5元",
+      "trend_iq": 89,
+      "risk_stars": 1,
+      "pct_at_pick": "+6.42%"
+    },
+    {
+      "code": "600683",
+      "name": "京投发展",
+      "strategy": "🚀 右侧刚启动",
+      "pick_price": 10.17,
+      "stop_loss": 9.66,
+      "target_price": 10.98,
+      "entry_range": "10.02~10.22元",
+      "trend_iq": 87,
+      "risk_stars": 1,
+      "pct_at_pick": "+5.06%"
+    },
+    {
+      "code": "600096",
+      "name": "云天化",
+      "strategy": "🤫 买在无人问津",
+      "pick_price": 29.57,
+      "stop_loss": 28.09,
+      "target_price": 31.94,
+      "entry_range": "29.13~29.72元",
+      "trend_iq": 79,
+      "risk_stars": 1,
+      "pct_at_pick": "-0.74%"
+    },
+    {
+      "code": "600123",
+      "name": "兰花科创",
+      "strategy": "🤫 买在无人问津",
+      "pick_price": 7.26,
+      "stop_loss": 6.9,
+      "target_price": 7.84,
+      "entry_range": "7.15~7.3元",
+      "trend_iq": 79,
+      "risk_stars": 1,
+      "pct_at_pick": "-0.27%"
+    },
+    {
+      "code": "600114",
+      "name": "东睦股份",
+      "strategy": "🦆 老鸭头突破",
+      "pick_price": 30.06,
+      "stop_loss": 28.56,
+      "target_price": 32.46,
+      "entry_range": "29.61~30.21元",
+      "trend_iq": 89,
+      "risk_stars": 1,
+      "pct_at_pick": "+6.60%"
+    },
+    {
+      "code": "600252",
+      "name": "中恒集团",
+      "strategy": "🦆 老鸭头突破",
+      "pick_price": 2.36,
+      "stop_loss": 2.24,
+      "target_price": 2.55,
+      "entry_range": "2.32~2.37元",
+      "trend_iq": 85,
+      "risk_stars": 2,
+      "pct_at_pick": "+5.83%"
+    }
+  ]
+}
