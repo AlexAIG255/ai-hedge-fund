@@ -97,17 +97,41 @@ class MorningStockPickerAgent:
         return filtered_items, history
 
     def update_today_history(self, selected_items: List[Dict]):
-        """存入今日精选标的"""
+        """存入今日精选标的（保存完整字段以供晚间复盘使用）"""
         history = self.load_history()
         today_str = time.strftime("%Y-%m-%d")
-        today_records = [
-            {
+        today_records = []
+
+        for item in selected_items:
+            # 清理字符串格式，统一转成浮点数值和字符串
+            try:
+                pick_price = float(str(item.get("price", "0")).replace("元", ""))
+            except ValueError:
+                pick_price = 0.0
+
+            try:
+                stop_loss = float(str(item.get("stop_loss", "0")).replace("元", ""))
+            except ValueError:
+                stop_loss = item.get("raw_stop_loss", round(pick_price * 0.95, 2))
+
+            try:
+                target_price = float(str(item.get("target_price", "0")).replace("元", ""))
+            except ValueError:
+                target_price = item.get("raw_target", round(pick_price * 1.08, 2))
+
+            today_records.append({
                 "code": item["code"],
                 "name": item["name"],
                 "strategy": item["strategy"],
-            }
-            for item in selected_items
-        ]
+                "pick_price": pick_price,
+                "stop_loss": stop_loss,
+                "target_price": target_price,
+                "entry_range": item.get("entry_range", f"{pick_price}~{pick_price}元"),
+                "trend_iq": item.get("trend_iq", 80),
+                "risk_stars": item.get("risk_stars", 1),
+                "pct_at_pick": item.get("pct", "0.00%")
+            })
+
         history[today_str] = today_records
         self.save_history(history)
 
@@ -183,15 +207,16 @@ class MorningStockPickerAgent:
             # 避免重复跟踪
             if not any(r["code"] == item["code"] and r["status"] == "TRACKING" for r in tracker_data):
                 try:
-                    price_val = float(item["price"].replace("元", ""))
-                    stop_loss_val = float(item["stop_loss"].replace("元", ""))
-                    target_val = float(item["target_price"].replace("元", ""))
+                    price_val = float(str(item["price"]).replace("元", ""))
+                    stop_loss_val = float(str(item["stop_loss"]).replace("元", ""))
+                    target_val = float(str(item["target_price"]).replace("元", ""))
                 except Exception:
                     continue
 
                 tracker_data.append({
                     "code": item["code"],
                     "name": item["name"],
+                    "strategy": item.get("strategy", "默认策略"),
                     "entry_date": today_str,
                     "entry_price": price_val,
                     "stop_loss": stop_loss_val,
@@ -609,11 +634,17 @@ class MorningStockPickerAgent:
 
         # 历史记录汇总
         h_header = "| 日期 | 当日推荐精选标的清单 |\n| :--- | :--- |"
-        h_rows = [
-            f"| {d} | "
-            + ", ".join([f"`{p['code']}` **{p['name']}**" for p in history_data[d]])
-            for d in sorted(history_data.keys(), reverse=True)[:5]
-        ]
+        h_rows = []
+        for d in sorted(history_data.keys(), reverse=True)[:5]:
+            picks = history_data[d]
+            pick_str_list = []
+            for p in picks:
+                if isinstance(p, dict):
+                    pick_str_list.append(f"`{p.get('code', '')}` **{p.get('name', '')}**")
+                else:
+                    pick_str_list.append(str(p))
+            h_rows.append(f"| {d} | " + ", ".join(pick_str_list))
+
         h_text = h_header + "\n" + "\n".join(h_rows) if h_rows else "暂无历史记录"
 
         # 拼接复盘总结部分
