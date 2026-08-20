@@ -1,11 +1,23 @@
-name: 🧪 测试 Agent 1 (早盘选股 & 企微直推)
+name: 🧪 Agent 1 (早盘选股 & 企微直推 & 跟踪复盘)
 
 on:
   workflow_dispatch: # 支持网页端手动点击运行
+  schedule:
+    # 转换为 UTC 时间：08:30 (北京时间) - 8小时 = 00:30 (UTC)
+    - cron: '30 0 * * 1-5' # 周一至周五 北京时间 08:30 自动触发
+
+# 🔒 开启仓库写权限，允许回写历史选股、跟踪池及复盘文件
+permissions:
+  contents: write
+
+concurrency:
+  group: morning-picker-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  run-test:
+  run-picker:
     runs-on: ubuntu-latest
+    timeout-minutes: 15 # 预留多次重试的总时间
 
     steps:
       - name: 1. 拉取代码
@@ -21,10 +33,35 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: 4. 执行选股与推送
+      - name: 4. 执行选股与推送 (支持失败自动重试3次)
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
           DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
-          MANUAL_TEST: "true" # 测试模式：只运行 1 次即成功退出
+          MANUAL_TEST: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: |
-          python hedge_fund/strategies/morning_picker.py
+          n=0
+          max_retries=3
+          until [ $n -ge $max_retries ]
+          do
+             echo "🚀 开始执行选股程序 (第 $((n+1)) 次尝试)..."
+             python hedge_fund/strategies/morning_picker.py && break
+             n=$((n+1))
+             if [ $n -lt $max_retries ]; then
+                echo "⚠️ 本次执行失败，等待 30 秒后进行第 $n 次重试..."
+                sleep 30
+             fi
+          done
+
+          if [ $n -eq $max_retries ]; then
+             echo "❌ 连续重试 $max_retries 次均失败，任务终止！"
+             exit 1
+          fi
+
+      - name: 5. 自动提交并保存选股历史与复盘数据
+        if: success() # 仅在选股推送成功后才提交数据
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
+          git commit -m "Auto-Update: 保存选股历史与建仓跟踪数据 [skip ci]" || exit 0
+          git push
