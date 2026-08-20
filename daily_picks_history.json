@@ -122,3 +122,10 @@
     }
   ]
 }
+def generate_review_report(self) -> str:
+    history = self.load_history()
+    print(f"🔍 [DEBUG] 实际读取到的文件路径: {self.history_file}")
+    print(f"🔍 [DEBUG] 读取到的历史记录 key 数量: {len(history)}")
+    
+    if not history:
+        return "⚠️ 当前无选股历史记录，请确认 daily_picks_history.json 路径是否正确。"
