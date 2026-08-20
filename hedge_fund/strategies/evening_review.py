@@ -1,5 +1,5 @@
 """
-Agent 2: 晚间复盘 Agent (路径自动适配 + 5-10 日观察期逐日跟踪 + 胜败归因)
+Agent 2: 晚间复盘 Agent (支持多源行情容错 + 自动防误杀 + 5-10 日观察期逐日跟踪 + 胜败归因)
 """
 
 import json
@@ -10,12 +10,10 @@ import requests
 
 # 智能自动定位根目录下的 daily_picks_history.json
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-# 向上寻找两级目录 (hedge_fund/strategies/ -> 根目录)
 ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../.."))
 
 HISTORY_FILE = os.path.join(ROOT_DIR, "daily_picks_history.json")
 if not os.path.exists(HISTORY_FILE):
-    # 备选：当前同级目录
     HISTORY_FILE = os.path.join(CURRENT_DIR, "daily_picks_history.json")
 
 POSTMORTEM_FILE = os.path.join(ROOT_DIR, "skills_postmortem.md")
@@ -42,15 +40,15 @@ class EveningReviewAgent:
         return {}
 
     def fetch_market_quotes(self, codes: list) -> dict:
-        """获取盘后最新行情（增加新浪财经备用接口，防止东财海外IP拦截）"""
+        """获取盘后最新行情（东财 + 新浪双源备用，带兜底逻辑）"""
         if not codes:
             return {}
         quotes = {}
-        
-        # --- 策略 1: 东方财富 API ---
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
+        
+        # --- 策略 1: 东方财富 API ---
         secids = [f"0.{c}" if (c.startswith("00") or c.startswith("30")) else f"1.{c}" for c in set(codes)]
         url = "http://push2.eastmoney.com/api/qt/ulist/get"
         params = {"fltt": "2", "fields": "f12,f14,f2,f3,f15,f16", "secids": ",".join(secids)}
@@ -62,7 +60,7 @@ class EveningReviewAgent:
                 if data and "diff" in data:
                     for item in data["diff"]:
                         close_p = item.get("f2")
-                        if close_p is not None and close_p != "-":
+                        if close_p is not None and str(close_p) != "-":
                             quotes[str(item["f12"])] = {
                                 "close": float(close_p),
                                 "pct": float(item.get("f3", 0.0) or 0.0),
@@ -72,7 +70,7 @@ class EveningReviewAgent:
         except Exception as e:
             print(f"⚠️ 东财行情 API 获取失败，准备切换备用源: {e}")
 
-        # --- 策略 2: 新浪财经 API (备用，专门应对东财海外IP封禁) ---
+        # --- 策略 2: 新浪财经 API (备用) ---
         missing_codes = [c for c in set(codes) if c not in quotes or quotes[c]["close"] == 0.0]
         if missing_codes:
             try:
@@ -84,13 +82,14 @@ class EveningReviewAgent:
                     lines = res.text.strip().split("\n")
                     for line in lines:
                         if '="' in line:
-                            code = line.split('str_s_')[1].split('=')[0][2:] if 'str_s_' in line else line.split('var hq_str_')[1].split('=')[0][2:]
+                            code_raw = line.split('=')[0].strip()
+                            code = code_raw[-6:]
                             content = line.split('"')[1]
                             parts = content.split(',')
-                            if len(parts) > 3:
-                                close_p = float(parts[3]) # 当前/收盘价
-                                open_p = float(parts[1])
-                                pct = ((close_p - float(parts[2])) / float(parts[2]) * 100) if float(parts[2]) > 0 else 0.0
+                            if len(parts) > 3 and float(parts[3]) > 0:
+                                close_p = float(parts[3])
+                                last_close = float(parts[2])
+                                pct = ((close_p - last_close) / last_close * 100) if last_close > 0 else 0.0
                                 quotes[code] = {
                                     "close": close_p,
                                     "pct": pct,
@@ -100,10 +99,10 @@ class EveningReviewAgent:
             except Exception as e:
                 print(f"⚠️ 新浪行情 API 补充失败: {e}")
 
-        # --- 降级处理：防止未拉到价格导致系统算出 0 元和 -100% 收益 ---
+        # --- 策略 3: 降级兜底标志 ---
         for c in codes:
             if c not in quotes or quotes[c]["close"] == 0.0:
-                print(f"⚠️ 标的 {c} 未能获取到最新价格，使用买入保底价兜底以防误杀。")
+                print(f"⚠️ 标的 {c} 未能获取到最新价格，激活保底机制防误判止损。")
                 quotes[c] = {"close": 0.0, "pct": 0.0, "high": 0.0, "low": 0.0, "is_mock": True}
 
         return quotes
@@ -149,39 +148,43 @@ class EveningReviewAgent:
             high_price = q.get("high", 0.0)
             low_price = q.get("low", 0.0)
 
-            pick_price = float(item.get("pick_price") or c_price)
+            pick_price = float(item.get("pick_price") or 0.0)
             stop_loss = float(item.get("stop_loss") or 0.0)
             target_price = float(item.get("target_price") or 0.0)
             strategy = item.get("strategy", "默认策略")
             days_held = item["days_held"]
 
-            cum_pct = ((c_price - pick_price) / pick_price * 100) if pick_price > 0 else 0.0
-            
-            status = "🟢 正常持有"
-            analysis_reason = ""
-
-            if c_price <= stop_loss and stop_loss > 0:
-                status = "🔴 触发止损"
-                analysis_reason = f"收盘价({c_price}元)跌破止损位({stop_loss}元)，建议执行止损。"
-            elif low_price <= stop_loss and stop_loss > 0:
-                status = "⚠️ 盘中破止损"
-                analysis_reason = f"盘中最低({low_price}元)触及止损位，警惕二次下探。"
-            elif c_price >= target_price and target_price > 0:
-                status = "🚀 达标止盈"
-                analysis_reason = f"突破目标价({target_price}元)，建议分批落袋为安。"
-            elif high_price >= target_price and target_price > 0:
-                status = "🎯 盘中触目标"
-                analysis_reason = f"盘中最高({high_price}元)冲高至目标价后受阻，注意高位抛压。"
+            # 🛡️ 行情接口延迟/失败时的兜底逻辑（防止显示 0 元和误算 -100% 止损）
+            is_mock = q.get("is_mock", False) or c_price == 0.0
+            if is_mock:
+                c_price = pick_price
+                cum_pct = 0.0
+                status = "⏳ 价格获取延迟"
+                analysis_reason = "盘后数据接口连接异常，暂按推荐买入价锁定防守观察。"
             else:
-                if cum_pct >= 3.0:
-                    status = "📈 趋势拉升"
-                    analysis_reason = "突破后持续上方震荡上行，多头结构良好。"
-                elif cum_pct <= -3.0:
-                    status = "📉 受压回调"
-                    analysis_reason = "买入后遭遇回调，反弹无量，需防守观望。"
+                cum_pct = ((c_price - pick_price) / pick_price * 100) if pick_price > 0 else 0.0
+                if c_price <= stop_loss and stop_loss > 0:
+                    status = "🔴 触发止损"
+                    analysis_reason = f"收盘价({c_price}元)跌破止损位({stop_loss}元)，建议执行止损。"
+                elif low_price <= stop_loss and stop_loss > 0:
+                    status = "⚠️ 盘中破止损"
+                    analysis_reason = f"盘中最低({low_price}元)触及止损位，警惕二次下探。"
+                elif c_price >= target_price and target_price > 0:
+                    status = "🚀 达标止盈"
+                    analysis_reason = f"突破目标价({target_price}元)，建议分批落袋为安。"
+                elif high_price >= target_price and target_price > 0:
+                    status = "🎯 盘中触目标"
+                    analysis_reason = f"盘中最高({high_price}元)冲高至目标价后受阻，注意高位抛压。"
                 else:
-                    status = "🔄 震荡洗盘"
-                    analysis_reason = "股价在推荐价附近小幅波动，筹码整固中。"
+                    if cum_pct >= 3.0:
+                        status = "📈 趋势拉升"
+                        analysis_reason = "突破后持续在买入价上方震荡上行，多头结构良好。"
+                    elif cum_pct <= -3.0:
+                        status = "📉 受压回调"
+                        analysis_reason = "买入后遭遇回调，反弹无量，需防守观望。"
+                    else:
+                        status = "🔄 震荡洗盘"
+                        analysis_reason = "股价在推荐价附近小幅波动，筹码整固中。"
 
             price_compare = f"{pick_price:.2f} ➔ {c_price:.2f}"
             pnl_str = f"+{cum_pct:.2f}%" if cum_pct > 0 else f"{cum_pct:.2f}%"
