@@ -1,48 +1,52 @@
-name: Daily Quant Evening Review
+name: Daily Quant Morning & Evening Workflow
 
 on:
   workflow_dispatch:
   schedule:
-    # 转换 UTC：北京时间 15:30 (收盘后复盘) = UTC 07:30
-    - cron: '30 7 * * 1-5'
+    - cron: '0 1 * * 1-5'   # 早上选股 (北京时间 09:00)
+    - cron: '30 7 * * 1-5'  # 晚间复盘 (北京时间 15:30)
 
 permissions:
   contents: write
 
-concurrency:
-  group: daily-review-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  run-review:
+  morning-picker:
+    name: Run Morning Stock Picker
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-
+    if: github.event.schedule == '0 1 * * 1-5' || github.event_name == 'workflow_dispatch'
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
-
       - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install requests
-
-      - name: Run Evening Review Script
+        run: pip install requests
+      - name: Run Morning Picker
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
-        run: |
-          python hedge_fund/strategies/evening_review.py
+        run: python hedge_fund/strategies/morning_picker.py
 
-      - name: Commit and Push Updated Portfolio Data
-        if: success()
+      # 关键步骤：把早盘生成的选股 JSON 提交存入仓库
+      - name: Commit and Push Pick History
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add hedge_fund/strategies/daily_picks_history.json || true
-          git commit -m "Auto-Update: Portfolio Data [skip ci]" || exit 0
+          git commit -m "Auto-save morning picks history [skip ci]" || exit 0
           git push
+
+  evening-review:
+    name: Run Evening Review
+    runs-on: ubuntu-latest
+    if: github.event.schedule == '30 7 * * 1-5' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install Dependencies
+        run: pip install requests
+      - name: Run Evening Review
+        env:
+          WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+        run: python hedge_fund/strategies/evening_review.py
