@@ -16,9 +16,17 @@ POSTMORTEM_FILE = os.path.join(BASE_DIR, "skills_postmortem.md")
 
 class EveningReviewAgent:
 
-    def __init__(self, history_file: str = HISTORY_FILE, postmortem_file: str = POSTMORTEM_FILE):
-        self.history_file = history_file
-        self.postmortem_file = postmortem_file
+    # 自动寻找根目录或当前目录下的 daily_picks_history.json
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../..")) # 向上退两级到根目录
+
+    # 优先读取根目录文件
+HISTORY_FILE = os.path.join(ROOT_DIR, "daily_picks_history.json")
+
+         if not os.path.exists(HISTORY_FILE):
+    # 备选：当前脚本同级目录
+    HISTORY_FILE = os.path.join(CURRENT_DIR, "daily_picks_history.json")
+
 
     def load_history(self) -> dict:
         if os.path.exists(self.history_file):
