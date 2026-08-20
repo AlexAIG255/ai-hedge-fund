@@ -65,3 +65,11 @@ jobs:
           git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
           git commit -m "Auto-Update: 保存选股历史与建仓跟踪数据 [skip ci]" || exit 0
           git push
+
+      - name: Commit and push tracking and history files
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
+          git commit -m "auto: update daily stock picks and portfolio history" || exit 0
+          git push
