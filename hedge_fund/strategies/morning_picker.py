@@ -76,8 +76,19 @@ class MorningStockPickerAgent:
         if len(past_dates) >= 2:
             d_minus_1 = past_dates[-1]
             d_minus_2 = past_dates[-2]
-            codes_d1 = set(item["code"] for item in history.get(d_minus_1, []))
-            codes_d2 = set(item["code"] for item in history.get(d_minus_2, []))
+            
+            # 安全提取前两天的股票代码，兼顾列表或字典结构
+            def extract_codes(day_data):
+                if isinstance(day_data, dict):
+                    records = day_data.get("records", [])
+                elif isinstance(day_data, list):
+                    records = day_data
+                else:
+                    records = []
+                return set(item["code"] for item in records if isinstance(item, dict) and "code" in item)
+
+            codes_d1 = extract_codes(history.get(d_minus_1, []))
+            codes_d2 = extract_codes(history.get(d_minus_2, []))
             blocked_codes = codes_d1.intersection(codes_d2)
 
             if blocked_codes:
@@ -97,9 +108,18 @@ class MorningStockPickerAgent:
         return filtered_items, history
 
     def update_today_history(self, selected_items: List[Dict]):
-        """存入今日精选标的（保存完整字段以供晚间复盘使用）"""
+        """存入今日精选标的（增加 run_count 运行计数，支持同日推荐最多 3 次）"""
         history = self.load_history()
         today_str = time.strftime("%Y-%m-%d")
+        
+        today_entry = history.get(today_str, {})
+        if isinstance(today_entry, list):
+            run_count = 1
+        elif isinstance(today_entry, dict):
+            run_count = today_entry.get("run_count", 0) + 1
+        else:
+            run_count = 1
+
         today_records = []
 
         for item in selected_items:
@@ -132,7 +152,10 @@ class MorningStockPickerAgent:
                 "pct_at_pick": item.get("pct", "0.00%")
             })
 
-        history[today_str] = today_records
+        history[today_str] = {
+            "run_count": run_count,
+            "records": today_records
+        }
         self.save_history(history)
 
     # ==========================================
@@ -636,7 +659,14 @@ class MorningStockPickerAgent:
         h_header = "| 日期 | 当日推荐精选标的清单 |\n| :--- | :--- |"
         h_rows = []
         for d in sorted(history_data.keys(), reverse=True)[:5]:
-            picks = history_data[d]
+            day_val = history_data[d]
+            if isinstance(day_val, dict):
+                picks = day_val.get("records", [])
+            elif isinstance(day_val, list):
+                picks = day_val
+            else:
+                picks = []
+
             pick_str_list = []
             for p in picks:
                 if isinstance(p, dict):
@@ -761,7 +791,7 @@ class MorningStockPickerAgent:
 
 
 # ==========================================
-# 🚀 启动控制逻辑（防重复推送版）
+# 🚀 启动控制逻辑（当日允许重复推荐 3 次防重版）
 # ==========================================
 def main():
     agent = MorningStockPickerAgent()
@@ -769,12 +799,23 @@ def main():
     print("🚀 Agent 1 [早盘选股 Agent] 启动，全策略搜寻中...")
     print("==================================================")
 
-    # 🛡️ 防重机制 1：启动前检查今日是否已完成推送
+    # 🛡️ 防重机制：检查今日已推荐次数（上限 3 次）
     today_str = time.strftime("%Y-%m-%d")
     history = agent.load_history()
-    if today_str in history and len(history[today_str]) > 0:
-        print(f"🛑 监测到今日 ({today_str}) 已完成过选股与推送，触发防重机制，程序停止。")
+    today_data = history.get(today_str, {})
+
+    if isinstance(today_data, dict):
+        run_count = today_data.get("run_count", 0)
+    elif isinstance(today_data, list) and len(today_data) > 0:
+        run_count = 1
+    else:
+        run_count = 0
+
+    if run_count >= 3:
+        print(f"🛑 监测到今日 ({today_str}) 已成功推荐 3 次，触发防重拦截机制，程序停止。")
         return
+
+    print(f"📊 今日已推荐次数: {run_count}/3，准备执行本次选股及推送...")
 
     success_count = 0
     for attempt in range(1, MAX_TOTAL_ATTEMPTS + 1):
@@ -803,7 +844,7 @@ def main():
                 success_count += 1
 
             if success_count >= TARGET_SUCCESS_COUNT:
-                print("🛑 完成任务，今日选股推送结束。")
+                print("🛑 完成任务，本次选股推送结束。")
                 break
             else:
                 time.sleep(SUCCESS_WAIT_SECONDS)
