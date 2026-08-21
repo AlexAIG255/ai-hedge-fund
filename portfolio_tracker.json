@@ -7,9 +7,15 @@
     "entry_price": 11.34,
     "stop_loss": 10.77,
     "target_price": 12.25,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 11.17,
+        "return_pct": -1.5
+      }
+    ]
   },
   {
     "code": "600228",
@@ -19,9 +25,15 @@
     "entry_price": 8.68,
     "stop_loss": 8.25,
     "target_price": 9.37,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 8.27,
+        "return_pct": -4.72
+      }
+    ]
   },
   {
     "code": "600127",
@@ -31,9 +43,15 @@
     "entry_price": 8.58,
     "stop_loss": 8.15,
     "target_price": 9.27,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 8.4,
+        "return_pct": -2.1
+      }
+    ]
   },
   {
     "code": "600172",
@@ -43,9 +61,15 @@
     "entry_price": 13.52,
     "stop_loss": 12.84,
     "target_price": 14.6,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 13.33,
+        "return_pct": -1.41
+      }
+    ]
   },
   {
     "code": "600397",
@@ -55,9 +79,15 @@
     "entry_price": 17.56,
     "stop_loss": 16.68,
     "target_price": 18.96,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 18.14,
+        "return_pct": 3.3
+      }
+    ]
   },
   {
     "code": "600110",
@@ -67,9 +97,15 @@
     "entry_price": 9.78,
     "stop_loss": 9.29,
     "target_price": 10.56,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 10.22,
+        "return_pct": 4.5
+      }
+    ]
   },
   {
     "code": "600121",
@@ -79,9 +115,15 @@
     "entry_price": 3.92,
     "stop_loss": 3.72,
     "target_price": 4.23,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 3.94,
+        "return_pct": 0.51
+      }
+    ]
   },
   {
     "code": "001277",
@@ -91,6 +133,96 @@
     "entry_price": 38.67,
     "stop_loss": 36.74,
     "target_price": 41.76,
+    "days_tracked": 1,
+    "status": "TRACKING",
+    "history": [
+      {
+        "date": "2026-08-21",
+        "close": 37.81,
+        "return_pct": -2.22
+      }
+    ]
+  },
+  {
+    "code": "600335",
+    "name": "国机汽车",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-08-21",
+    "entry_price": 5.23,
+    "stop_loss": 4.97,
+    "target_price": 5.65,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600149",
+    "name": "廊坊发展",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-08-21",
+    "entry_price": 4.9,
+    "stop_loss": 4.66,
+    "target_price": 5.29,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "000603",
+    "name": "盛达资源",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-08-21",
+    "entry_price": 35.33,
+    "stop_loss": 33.56,
+    "target_price": 38.16,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600063",
+    "name": "皖维高新",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-21",
+    "entry_price": 5.84,
+    "stop_loss": 5.55,
+    "target_price": 6.31,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600159",
+    "name": "大龙地产",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-21",
+    "entry_price": 2.51,
+    "stop_loss": 2.38,
+    "target_price": 2.71,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600345",
+    "name": "长江通信",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-21",
+    "entry_price": 47.62,
+    "stop_loss": 45.24,
+    "target_price": 51.43,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600498",
+    "name": "烽火通信",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-21",
+    "entry_price": 41.06,
+    "stop_loss": 39.01,
+    "target_price": 44.34,
     "days_tracked": 0,
     "status": "TRACKING",
     "history": []
