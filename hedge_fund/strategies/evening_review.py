@@ -123,13 +123,19 @@ class EveningReviewAgent:
                 continue
             days_held = (today_dt - pick_dt).days
             if 0 <= days_held <= 10:
-               for p in picks:
-            if isinstance(p, dict):
-                item = p
-            elif isinstance(p, str):
-                item = {"code": p, "name": p, "pick_price": 0.0, "target_price": 0.0, "stop_loss": 0.0}
-            else:
-                continue
+                for p in picks:
+                    if isinstance(p, dict):
+                        item = dict(p)
+                    elif isinstance(p, str):
+                        item = {"code": p, "name": p, "pick_price": 0.0, "target_price": 0.0, "stop_loss": 0.0}
+                    else:
+                        continue
+
+                    item["pick_date"] = date_str
+                    item["days_held"] = days_held
+                    tracked_records.append(item)
+                    if item.get("code"):
+                        all_codes.append(item["code"])
 
         if not tracked_records:
             return "📊 暂无 5-10 日观察期内的历史标的。"
@@ -298,7 +304,6 @@ class EveningReviewAgent:
             
             # 停顿 0.5 秒防止发送频控
             time.sleep(0.5)
-
 
 
 def main():
