@@ -124,11 +124,15 @@ class EveningReviewAgent:
             days_held = (today_dt - pick_dt).days
             if 0 <= days_held <= 10:
                 for p in picks:
-                    item = dict(p)
-                    item["pick_date"] = date_str
-                    item["days_held"] = days_held
-                    tracked_records.append(item)
-                    all_codes.append(item["code"])
+        # ✅ 修改后的安全代码
+       for p in picks:
+            if isinstance(p, dict):
+            item = p
+       elif isinstance(p, str):
+        # 如果历史数据里存的是字符串代码或名称，自动兼容转为字典
+        item = {"code": p, "name": p, "pick_price": 0.0, "target_price": 0.0, "stop_loss": 0.0}
+    else:
+        continue
 
         if not tracked_records:
             return "📊 暂无 5-10 日观察期内的历史标的。"
