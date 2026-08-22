@@ -233,5 +233,130 @@
         "pct_at_pick": "+6.65%"
       }
     ]
+  },
+  "2026-08-22": {
+    "run_count": 1,
+    "records": [
+      {
+        "code": "600227",
+        "name": "赤天化",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 3.95,
+        "stop_loss": 3.75,
+        "target_price": 4.27,
+        "entry_range": "3.89~3.97元",
+        "trend_iq": 87,
+        "risk_stars": 3,
+        "pct_at_pick": "+5.61%"
+      },
+      {
+        "code": "600256",
+        "name": "广汇能源",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 6.23,
+        "stop_loss": 5.92,
+        "target_price": 6.73,
+        "entry_range": "6.14~6.26元",
+        "trend_iq": 82,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.80%"
+      },
+      {
+        "code": "600149",
+        "name": "廊坊发展",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 4.95,
+        "stop_loss": 4.7,
+        "target_price": 5.35,
+        "entry_range": "4.88~4.97元",
+        "trend_iq": 78,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.98%"
+      },
+      {
+        "code": "600228",
+        "name": "返利科技",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 8.21,
+        "stop_loss": 7.8,
+        "target_price": 8.87,
+        "entry_range": "8.09~8.25元",
+        "trend_iq": 82,
+        "risk_stars": 1,
+        "pct_at_pick": "+0.12%"
+      },
+      {
+        "code": "600531",
+        "name": "豫光金铅",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 13.9,
+        "stop_loss": 13.21,
+        "target_price": 15.01,
+        "entry_range": "13.69~13.97元",
+        "trend_iq": 90,
+        "risk_stars": 1,
+        "pct_at_pick": "+6.19%"
+      },
+      {
+        "code": "601126",
+        "name": "四方股份",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 45.45,
+        "stop_loss": 43.18,
+        "target_price": 49.09,
+        "entry_range": "44.77~45.68元",
+        "trend_iq": 86,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.51%"
+      },
+      {
+        "code": "600048",
+        "name": "保利发展",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 5.19,
+        "stop_loss": 4.93,
+        "target_price": 5.61,
+        "entry_range": "5.11~5.22元",
+        "trend_iq": 78,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.14%"
+      },
+      {
+        "code": "600054",
+        "name": "黄山旅游",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 11.15,
+        "stop_loss": 10.59,
+        "target_price": 12.04,
+        "entry_range": "10.98~11.21元",
+        "trend_iq": 78,
+        "risk_stars": 1,
+        "pct_at_pick": "-0.89%"
+      },
+      {
+        "code": "000506",
+        "name": "招金黄金",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 20.77,
+        "stop_loss": 19.73,
+        "target_price": 22.43,
+        "entry_range": "20.46~20.87元",
+        "trend_iq": 89,
+        "risk_stars": 2,
+        "pct_at_pick": "+6.79%"
+      },
+      {
+        "code": "000920",
+        "name": "沃顿科技",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 11.5,
+        "stop_loss": 10.92,
+        "target_price": 12.42,
+        "entry_range": "11.33~11.56元",
+        "trend_iq": 85,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.70%"
+      }
+    ]
   }
 }
