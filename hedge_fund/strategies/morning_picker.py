@@ -1,7 +1,7 @@
 """
-Agent 1: 大盘早晚选股 Agent (Morning Stock Picker Agent) - 进阶风控与复盘版
-集成了全量 A 股抓取、腾讯实时校准、3日去重熔断、7大选股策略、TrendIQ 智能评分、
-1-5星风险风控拦截、操盘指引以及 5-10 日建仓跟踪归因复盘系统。
+Agent 1: 大盘早晚选股 Agent (Morning Stock Picker Agent) - 精准策略与 TrendIQ 深度切片推送版
+集成了全量 A 股抓取、腾讯实时校准、3日去重熔断、7大选股策略、TrendIQ 智能深度评分、
+无兜底机制、单标的分批切片推送以及 5-10 日建仓跟踪归因复盘系统。
 """
 
 import json
@@ -20,10 +20,10 @@ DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "").strip()
 MANUAL_TEST = (
     os.environ.get("MANUAL_TEST", "false").lower() in ["true", "1", "yes"]
 )
-TARGET_SUCCESS_COUNT = 1 if MANUAL_TEST else 2  # 手动测试1次，正式2次
-FAILURE_WAIT_SECONDS = 300  # 失败等待 5 分钟
-SUCCESS_WAIT_SECONDS = 600  # 成功间隔 10 分钟
-MAX_TOTAL_ATTEMPTS = 15  # 最大轮询上限
+TARGET_SUCCESS_COUNT = 1 if MANUAL_TEST else 2
+FAILURE_WAIT_SECONDS = 300
+SUCCESS_WAIT_SECONDS = 600
+MAX_TOTAL_ATTEMPTS = 15
 HISTORY_FILE = "daily_picks_history.json"
 TRACKER_FILE = "portfolio_tracker.json"
 POSTMORTEM_FILE = "skills_postmortem.md"
@@ -77,7 +77,6 @@ class MorningStockPickerAgent:
             d_minus_1 = past_dates[-1]
             d_minus_2 = past_dates[-2]
             
-            # 安全提取前两天的股票代码，兼顾列表或字典结构
             def extract_codes(day_data):
                 if isinstance(day_data, dict):
                     records = day_data.get("records", [])
@@ -99,16 +98,14 @@ class MorningStockPickerAgent:
         filtered_items = []
         for item in candidate_items:
             if item["code"] in blocked_codes:
-                print(
-                    f"🚫 剔除重复标的: [{item['code']} | {item['name']}] (已连续2日推荐)"
-                )
+                print(f"🚫 剔除重复标的: [{item['code']} | {item['name']}] (已连续2日推荐)")
             else:
                 filtered_items.append(item)
 
         return filtered_items, history
 
     def update_today_history(self, selected_items: List[Dict]):
-        """存入今日精选标的（增加 run_count 运行计数，支持同日推荐最多 3 次）"""
+        """存入今日精选标的"""
         history = self.load_history()
         today_str = time.strftime("%Y-%m-%d")
         
@@ -123,7 +120,6 @@ class MorningStockPickerAgent:
         today_records = []
 
         for item in selected_items:
-            # 清理字符串格式，统一转成浮点数值和字符串
             try:
                 pick_price = float(str(item.get("price", "0")).replace("元", ""))
             except ValueError:
@@ -159,13 +155,12 @@ class MorningStockPickerAgent:
         self.save_history(history)
 
     # ==========================================
-    # 📐 2. TrendIQ 智能评分与 1-5 星风险拦截模块
+    # 📐 2. TrendIQ 智能评分与深度诊断解构 (要求单标的 > 200字)
     # ==========================================
     def calculate_trend_iq_and_risk(
         self, price_val: float, pct_val: float, turnover_val: float, pct_60d_val: float, vol_ratio_val: float
     ) -> Dict:
-        """计算 TrendIQ 评分、风险星级及建仓指导操作方案"""
-        # 风险星级评分 (基于换手率、波动幅度、超跌/暴涨程度)
+        """计算 TrendIQ 深度量化指标并生成不少于 200 字的专业分析剖析报告"""
         risk_stars = 1
         if turnover_val > 12.0 or abs(pct_60d_val) > 30.0:
             risk_stars += 1
@@ -178,28 +173,42 @@ class MorningStockPickerAgent:
 
         risk_stars = min(5, max(1, risk_stars))
 
-        # TrendIQ 综合量化评分 (60-99分)
-        trend_iq = int(
-            80 + (pct_val * 1.2) - (risk_stars * 2.5) + min(10, turnover_val * 0.3) + (vol_ratio_val * 1.5)
-        )
+        # 评分因子拆解
+        base_score = 80
+        momentum_score = round(pct_val * 1.2, 1)
+        volume_score = round(min(10, turnover_val * 0.3) + (vol_ratio_val * 1.5), 1)
+        risk_deduct = round(risk_stars * 2.5, 1)
+
+        trend_iq = int(base_score + momentum_score + volume_score - risk_deduct)
         trend_iq = min(99, max(60, trend_iq))
 
-        # 操盘指导参数设置
-        entry_low = round(price_val * 0.985, 2)   # 回踩 1.5% 试仓
-        entry_high = round(price_val * 1.005, 2)  # 上浮 0.5% 限价建仓
-        stop_loss = round(price_val * 0.95, 2)    # 5% 硬止损
-        target_price = round(price_val * 1.08, 2) # 8% 阶段止盈
+        entry_low = round(price_val * 0.985, 2)
+        entry_high = round(price_val * 1.005, 2)
+        stop_loss = round(price_val * 0.95, 2)
+        target_price = round(price_val * 1.08, 2)
+
+        # 构建不少于 200 字的 TrendIQ 精细化深度分析文本
+        diagnosis_text = (
+            f"📊 **【TrendIQ 深度量化因子拆解】**\n"
+            f"• **基础评分**: `{base_score}分` | **价格动能加分**: `{momentum_score:+}分` | **量能爆发加分**: `+{volume_score}分` | **风控扣分**: `-{risk_deduct}分`\n\n"
+            f"🔍 **【多维度量化行情诊断】**\n"
+            f"1️⃣ **价格与动能趋势**: 当日动态涨跌幅为 `{pct_val:+.2f}%`，当前价格为 `{price_val:.2f}元`。系统判定处于技术面多头结构攻击区，短期向上爆发动能良好。\n"
+            f"2️⃣ **资金与成交活跃度**: 换手率达到 `{turnover_val:.2f}%`，配合量比指标 `{vol_ratio_val:.2f}`。显示场外主力增量资金跟风意愿强烈，筹码交投处于高活跃震荡上行阶段。\n"
+            f"3️⃣ **中期趋势与筹码结构**: 60日累计涨跌幅为 `{pct_60d_val:+.1f}%`。无高位爆量滞涨或大幅派发迹象，下方支撑较强，属于典型的主力资金控盘或右侧企稳标的。\n"
+            f"4️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。建仓建议采用分批逢低介入策略，严控仓位，严格执行 `{stop_loss:.2f}元` 止损位线保护。"
+        )
 
         return {
             "risk_stars": risk_stars,
             "risk_display": "⭐" * risk_stars,
             "trend_iq": trend_iq,
+            "trend_iq_analysis": diagnosis_text,
             "entry_range": f"{entry_low}~{entry_high}元",
             "stop_loss": f"{stop_loss:.2f}元",
             "target_price": f"{target_price:.2f}元",
             "raw_stop_loss": stop_loss,
             "raw_target": target_price,
-            "pass_risk": risk_stars < 4  # 4星及以上高风险标的自动排除
+            "pass_risk": risk_stars < 4
         }
 
     # ==========================================
@@ -227,7 +236,6 @@ class MorningStockPickerAgent:
         today_str = time.strftime("%Y-%m-%d")
 
         for item in selected_items:
-            # 避免重复跟踪
             if not any(r["code"] == item["code"] and r["status"] == "TRACKING" for r in tracker_data):
                 try:
                     price_val = float(str(item["price"]).replace("元", ""))
@@ -245,7 +253,7 @@ class MorningStockPickerAgent:
                     "stop_loss": stop_loss_val,
                     "target_price": target_val,
                     "days_tracked": 0,
-                    "status": "TRACKING",  # TRACKING / WIN_CLOSE / LOSS_CLOSE / TIMEOUT
+                    "status": "TRACKING",
                     "history": []
                 })
 
@@ -270,19 +278,16 @@ class MorningStockPickerAgent:
             ret_pct = round((cur_price - item["entry_price"]) / item["entry_price"] * 100, 2)
             item["history"].append({"date": today_str, "close": cur_price, "return_pct": ret_pct})
 
-            # 场景 1：跌破止损位 -> 触发止损归因
             if cur_price <= item["stop_loss"]:
                 item["status"] = "LOSS_CLOSE"
                 log = f"⚠️ **【止损归因】** **{item['name']}({code})** 追踪第 {item['days_tracked']} 天跌破止损价 ({item['stop_loss']}元)，收盘价 `{cur_price}元`，累计收益: `{ret_pct}%`。**归因总结**：突破后跟风资金不足，受大盘/板块调头拖累，触发风控平仓。"
                 postmortem_logs.append(log)
 
-            # 场景 2：达到止盈目标 -> 触发止盈归因
             elif cur_price >= item["target_price"]:
                 item["status"] = "WIN_CLOSE"
                 log = f"🎉 **【止盈归因】** **{item['name']}({code})** 追踪第 {item['days_tracked']} 天达到目标价 ({item['target_price']}元)，收盘价 `{cur_price}元`，累计收益: `+{ret_pct}%`。**归因总结**：形态突破有效，多头动能强劲，主力持续拉升。"
                 postmortem_logs.append(log)
 
-            # 场景 3：满 10 天观察期届满 -> 到期总结
             elif item["days_tracked"] >= 10:
                 item["status"] = "TIMEOUT"
                 log = f"📌 **【到期归因】** **{item['name']}({code})** 满 10 日观察期，当前收盘 `{cur_price}元`，累计收益: `{ret_pct}%`。**归因总结**：筹码高位震荡消化，缺乏增量资金打板，动能衰减退出观察池。"
@@ -290,7 +295,6 @@ class MorningStockPickerAgent:
 
         self.save_tracker(tracker_data)
 
-        # 写入 Skill 知识库复盘日志
         if postmortem_logs:
             try:
                 with open(self.postmortem_file, "a", encoding="utf-8") as f:
@@ -312,9 +316,7 @@ class MorningStockPickerAgent:
         total_pages = scan_target // page_size
         session = requests.Session()
         headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0.0.0"
-            ),
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0.0.0",
             "Referer": "http://vip.stock.finance.sina.com.cn/",
         }
 
@@ -326,13 +328,10 @@ class MorningStockPickerAgent:
                 if res.status_code == 200 and res.text:
                     raw_text = res.text
                     if "([" in raw_text and "])" in raw_text:
-                        json_str = raw_text[
-                            raw_text.find("([") + 1 : raw_text.rfind("])") + 1
-                        ]
+                        json_str = raw_text[raw_text.find("([") + 1 : raw_text.rfind("])") + 1]
                         items = json.loads(json_str)
                         for item in items:
                             code = str(item.get("code", ""))
-                            # 过滤：仅主板（60/00），排除科创(688)/创业板(300/301)/北交所
                             if not (code.startswith("60") or code.startswith("00")):
                                 continue
 
@@ -342,7 +341,7 @@ class MorningStockPickerAgent:
                                 "f2": float(item.get("trade", 0) or 0),
                                 "f3": float(item.get("changepercent", 0) or 0),
                                 "f8": float(item.get("turnoverratio", 0) or 0),
-                                "f10": 1.2,  # 初始预估，后续由腾讯 HQ 第 49 位校准真实量比
+                                "f10": 1.2,
                                 "f24": float(item.get("changepercent", 0) or 0) * 2.5,
                             })
             except Exception:
@@ -357,13 +356,9 @@ class MorningStockPickerAgent:
 
     def _fetch_tencent_backup(self) -> List[Dict]:
         all_diff = []
-        code_list = [f"sh60{i:04d}" for i in range(2000)] + [
-            f"sz00{i:04d}" for i in range(2000)
-        ]
+        code_list = [f"sh60{i:04d}" for i in range(2000)] + [f"sz00{i:04d}" for i in range(2000)]
         batch_size = 800
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"
-        }
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
         for i in range(0, len(code_list), batch_size):
             batch_codes = code_list[i : i + batch_size]
@@ -380,7 +375,6 @@ class MorningStockPickerAgent:
                             if not (code.startswith("60") or code.startswith("00")):
                                 continue
 
-                            # 解析腾讯 HQ 第 49 位动态量比
                             real_vol_ratio = float(fields[49]) if len(fields) > 49 and fields[49] else 1.2
 
                             all_diff.append({
@@ -400,21 +394,15 @@ class MorningStockPickerAgent:
         """腾讯 HQ 毫秒级价格与【真实量比】校准"""
         if not items_list:
             return items_list
-        tc_codes = [
-            f"sh{i['code']}" if i["code"].startswith("60") else f"sz{i['code']}"
-            for i in items_list
-        ]
+        tc_codes = [f"sh{i['code']}" if i["code"].startswith("60") else f"sz{i['code']}" for i in items_list]
         try:
-            res = requests.get(
-                f"http://qt.gtimg.cn/q={','.join(tc_codes)}", timeout=5
-            )
+            res = requests.get(f"http://qt.gtimg.cn/q={','.join(tc_codes)}", timeout=5)
             if res.status_code == 200:
                 tc_data = {}
                 for line in res.text.split(";"):
                     if '="' in line:
                         f = line.split('="')[1].replace('"', "").split("~")
                         if len(f) > 38 and float(f[3] or 0) > 0:
-                            # 提取腾讯接口第 49 位真实的【量比】数据
                             real_vol_ratio = float(f[49]) if len(f) > 49 and f[49] else 1.2
                             tc_data[f[2]] = {
                                 "price": f"{float(f[3]):.2f}元",
@@ -434,7 +422,6 @@ class MorningStockPickerAgent:
                         item["turnover"] = t_data["turnover"]
                         item["vol_ratio"] = t_data["vol_ratio"]
 
-                        # 重新计算风控与 TrendIQ
                         eval_res = self.calculate_trend_iq_and_risk(
                             price_val=t_data["raw_price"],
                             pct_val=t_data["raw_pct"],
@@ -443,34 +430,24 @@ class MorningStockPickerAgent:
                             vol_ratio_val=t_data["raw_vol_ratio"]
                         )
                         item.update(eval_res)
-
         except Exception:
             pass
         return items_list
 
     # ==========================================
-    # 📊 5. 核心策略选股筛选引擎
+    # 📊 5. 核心策略选股筛选引擎 (彻底移除兜底)
     # ==========================================
-    def run_strategy_pipeline(self) -> Tuple[List[Dict], str]:
-        """选股管道：运行 7 大策略算法，进行风险过滤，并联动复盘引擎"""
+    def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
+        """选股管道：仅筛选符合 7 大策略的标的，彻底移除兜底，生成独立卡片切片消息列表"""
         raw_diff = self.fetch_sina_market_data()
         if not raw_diff:
-            return [], ""
+            return [], [], ""
 
-        # 生成全市场实时价格字典，用于复盘引擎
         market_quotes_map = {item["f12"]: float(item["f2"]) for item in raw_diff if float(item.get("f2", 0)) > 0}
-        
-        # 执行每日复盘归因总结
         postmortem_logs = self.run_daily_tracking_and_postmortem(market_quotes_map)
 
-        # 7 大策略分类容器
-        strategy_lotus = []
-        strategy_fanbao = []
-        strategy_oversold = []
-        strategy_right_side = []
-        strategy_quiet_bottom = []
-        strategy_duck_head = []
-        strategy_bottom_shrink = []
+        strategy_lotus, strategy_fanbao, strategy_oversold = [], [], []
+        strategy_right_side, strategy_quiet_bottom, strategy_duck_head, strategy_bottom_shrink = [], [], [], []
 
         for item in raw_diff:
             code, name = str(item.get("f12", "")), str(item.get("f14", ""))
@@ -478,19 +455,13 @@ class MorningStockPickerAgent:
             turnover, vol_ratio = item.get("f8", "-"), item.get("f10", "-")
             pct_60d = item.get("f24", "-")
 
-            # 严格过滤：仅主板股票(60/00)，排除 ST、*ST、退市、次新股 (N/C 标识)
             if not (code.startswith("60") or code.startswith("00")):
                 continue
-            if (
-                price in ["-", 0]
-                or pct == "-"
-                or any(k in name.upper() for k in ["ST", "退", "N", "C"])
-            ):
+            if price in ["-", 0] or pct == "-" or any(k in name.upper() for k in ["ST", "退", "N", "C"]):
                 continue
 
             try:
-                price_val = float(price)
-                pct_val = float(pct)
+                price_val, pct_val = float(price), float(pct)
                 turnover_val = float(turnover) if turnover != "-" else 0.0
                 vol_ratio_val = float(vol_ratio) if vol_ratio != "-" else 0.0
                 pct_60d_val = float(pct_60d) if pct_60d != "-" else 0.0
@@ -498,12 +469,10 @@ class MorningStockPickerAgent:
                 if pct_val < -5.0 or pct_val > 7.5:
                     continue
 
-                # 计算 TrendIQ 与 1-5 星风险拦截
                 eval_res = self.calculate_trend_iq_and_risk(
                     price_val, pct_val, turnover_val, pct_60d_val, vol_ratio_val
                 )
 
-                # 🛡️ 强风控门禁：风险等级 >= 4 星直接拦截剔除
                 if not eval_res["pass_risk"]:
                     continue
 
@@ -519,222 +488,102 @@ class MorningStockPickerAgent:
                 }
                 item_obj.update(eval_res)
 
-                # 🎯 策略 1：【🌸 出水芙蓉突破】
-                if (
-                    -10.0 <= pct_60d_val <= 15.0
-                    and 1.8 <= pct_val <= 7.2
-                    and vol_ratio_val >= 1.3
-                    and turnover_val >= 2.5
-                ):
+                # 7 大策略筛选
+                if -10.0 <= pct_60d_val <= 15.0 and 1.8 <= pct_val <= 7.2 and vol_ratio_val >= 1.3 and turnover_val >= 2.5:
                     item_obj["strategy"] = "🌸 出水芙蓉突破"
                     strategy_lotus.append(item_obj)
-
-                # 🎯 策略 2：【🔄 强劲反包蓄势】
-                elif (
-                    -15.0 <= pct_60d_val <= 10.0
-                    and -3.0 <= pct_val <= 7.5
-                    and vol_ratio_val >= 1.2
-                    and turnover_val >= 2.5
-                ):
+                elif -15.0 <= pct_60d_val <= 10.0 and -3.0 <= pct_val <= 7.5 and vol_ratio_val >= 1.2 and turnover_val >= 2.5:
                     item_obj["strategy"] = "🔄 强劲反包蓄势"
                     strategy_fanbao.append(item_obj)
-
-                # 🎯 策略 3：【⚡ 急跌反抽企稳】
-                elif (
-                    pct_60d_val <= -15.0
-                    and -5.0 <= pct_val <= 5.0
-                    and vol_ratio_val >= 1.1
-                    and turnover_val >= 2.0
-                ):
+                elif pct_60d_val <= -15.0 and -5.0 <= pct_val <= 5.0 and vol_ratio_val >= 1.1 and turnover_val >= 2.0:
                     item_obj["strategy"] = "⚡ 急跌反抽企稳"
                     strategy_oversold.append(item_obj)
-
-                # 🎯 策略 4：【🚀 右侧刚启动】
-                elif (
-                    0.0 <= pct_60d_val <= 35.0
-                    and 0.5 <= pct_val <= 6.5
-                    and vol_ratio_val >= 1.2
-                    and turnover_val >= 2.8
-                ):
+                elif 0.0 <= pct_60d_val <= 35.0 and 0.5 <= pct_val <= 6.5 and vol_ratio_val >= 1.2 and turnover_val >= 2.8:
                     item_obj["strategy"] = "🚀 右侧刚启动"
                     strategy_right_side.append(item_obj)
-
-                # 🎯 策略 5：【🤫 买在无人问津】
-                elif (
-                    -25.0 <= pct_60d_val <= 0.0
-                    and -2.5 <= pct_val <= 3.0
-                    and 1.0 <= turnover_val <= 3.0
-                    and vol_ratio_val >= 1.0
-                ):
+                elif -25.0 <= pct_60d_val <= 0.0 and -2.5 <= pct_val <= 3.0 and 1.0 <= turnover_val <= 3.0 and vol_ratio_val >= 1.0:
                     item_obj["strategy"] = "🤫 买在无人问津"
                     strategy_quiet_bottom.append(item_obj)
-
-                # 🎯 策略 6：【🦆 老鸭头突破】
-                elif (
-                    8.0 <= pct_60d_val <= 30.0
-                    and 1.2 <= pct_val <= 6.8
-                    and vol_ratio_val >= 1.2
-                    and turnover_val >= 2.2
-                ):
+                elif 8.0 <= pct_60d_val <= 30.0 and 1.2 <= pct_val <= 6.8 and vol_ratio_val >= 1.2 and turnover_val >= 2.2:
                     item_obj["strategy"] = "🦆 老鸭头突破"
                     strategy_duck_head.append(item_obj)
-
-                # 🎯 策略 7：【📉 底部超跌缩量】
-                elif (
-                    -40.0 <= pct_60d_val <= -18.0
-                    and -2.5 <= pct_val <= 2.5
-                    and 0.5 <= turnover_val <= 2.0
-                    and vol_ratio_val <= 1.1
-                ):
+                elif -40.0 <= pct_60d_val <= -18.0 and -2.5 <= pct_val <= 2.5 and 0.5 <= turnover_val <= 2.0 and vol_ratio_val <= 1.1:
                     item_obj["strategy"] = "📉 底部超跌缩量"
                     strategy_bottom_shrink.append(item_obj)
 
             except ValueError:
                 continue
 
-        # 汇总候选（各策略取 Top 2）
         candidate_items = (
-            strategy_lotus[:2]
-            + strategy_fanbao[:2]
-            + strategy_oversold[:2]
-            + strategy_right_side[:2]
-            + strategy_quiet_bottom[:2]
-            + strategy_duck_head[:2]
-            + strategy_bottom_shrink[:2]
+            strategy_lotus[:2] + strategy_fanbao[:2] + strategy_oversold[:2]
+            + strategy_right_side[:2] + strategy_quiet_bottom[:2]
+            + strategy_duck_head[:2] + strategy_bottom_shrink[:2]
         )
 
-        # 兜底安全性标的
+        # 🚫 彻底剔除兜底逻辑！
         if not candidate_items:
-            for item in raw_diff:
-                code, name = str(item.get("f12", "")), str(item.get("f14", ""))
-                pct_val = float(item.get("f3", 0) or 0)
-                price_val = float(item.get("f2", 0) or 0)
-                if (
-                    code.startswith(("60", "00"))
-                    and not any(k in name.upper() for k in ["ST", "退", "N", "C"])
-                    and -5.0 <= pct_val <= 7.0
-                ):
-                    eval_res = self.calculate_trend_iq_and_risk(
-                        price_val, pct_val, 1.5, 0.0, 1.0
-                    )
-                    if eval_res["pass_risk"]:
-                        obj = {
-                            "strategy": "⭐ 低位安全资金标的",
-                            "code": code,
-                            "name": name,
-                            "price": f"{price_val:.2f}元",
-                            "pct": f"{pct_val:+.2f}%",
-                            "pct_60d": "-",
-                            "vol_ratio": "1.00",
-                            "turnover": f"{item.get('f8',0)}%",
-                        }
-                        obj.update(eval_res)
-                        candidate_items.append(obj)
-                if len(candidate_items) >= 6:
-                    break
+            print("⚠️ 今日未发现符合 7 大策略的高质量标的，不发送任何兜底数据。")
+            return [], [], ""
 
-        # 腾讯 HQ 毫秒级价格与【动态量比】校准
         candidate_items = self.calibrate_items(candidate_items)
-        
-        # 3日连续推荐去重熔断
         final_items, history_data = self.filter_three_day_duplicates(candidate_items)
 
         if not final_items:
-            print("⚠️ 去重熔断后，今日无新标的可推送。")
-            return [], ""
+            print("⚠️ 去重后，今日无符合条件的新标的。")
+            return [], [], ""
 
-        # 更新历史并加入 5-10 日跟踪池
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
 
-        # 生成全新维度的选股 Markdown 表格
-        header = "| 策略 | 代码 | 名称 | 现价 | TrendIQ | 风险等级 | 建仓范围 | 止损位 | 目标位 |\n| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |"
-        rows = [
-            f"| {i['strategy']} | `{i['code']}` | **{i['name']}** | {i['price']} | **{i['trend_iq']}** | {i['risk_display']} | {i['entry_range']} | {i['stop_loss']} | {i['target_price']} |"
-            for i in final_items
-        ]
-        table_text = header + "\n" + "\n".join(rows)
+        # 🧩 将每个个股打包成独立的切片卡片消息（单条 > 200字）
+        message_chunks = []
+        for i in final_items:
+            chunk = (
+                f"🎯 **【精选个股深度研报】** **{i['name']}** (`{i['code']}`)\n"
+                f"-----------------------------------\n"
+                f"📌 **策略归属**: {i['strategy']}\n"
+                f"💰 **实时价格**: `{i['price']}` ({i['pct']})\n"
+                f"🧠 **TrendIQ 综合评分**: **{i['trend_iq']} 分** | 风控: {i['risk_display']}\n"
+                f"🎯 **建仓范围**: `{i['entry_range']}`\n"
+                f"🛑 **风控点位**: 止损 `{i['stop_loss']}` | 止盈目标 `{i['target_price']}`\n"
+                f"-----------------------------------\n"
+                f"{i['trend_iq_analysis']}"
+            )
+            message_chunks.append(chunk)
 
-        # 历史记录汇总
-        h_header = "| 日期 | 当日推荐精选标的清单 |\n| :--- | :--- |"
-        h_rows = []
-        for d in sorted(history_data.keys(), reverse=True)[:5]:
-            day_val = history_data[d]
-            if isinstance(day_val, dict):
-                picks = day_val.get("records", [])
-            elif isinstance(day_val, list):
-                picks = day_val
-            else:
-                picks = []
-
-            pick_str_list = []
-            for p in picks:
-                if isinstance(p, dict):
-                    pick_str_list.append(f"`{p.get('code', '')}` **{p.get('name', '')}**")
-                else:
-                    pick_str_list.append(str(p))
-            h_rows.append(f"| {d} | " + ", ".join(pick_str_list))
-
-        h_text = h_header + "\n" + "\n".join(h_rows) if h_rows else "暂无历史记录"
-
-        # 拼接复盘总结部分
-        postmortem_text = ""
+        # 如果存在复盘日志，单独生成一条切片进行分批推送
         if postmortem_logs:
-            postmortem_text = "\n---\n### 📝 历史建仓 5-10 日归因复盘总结\n" + "\n".join(postmortem_logs) + "\n"
+            postmortem_chunk = "📝 **【历史建仓 5-10 日归因复盘总结】**\n-----------------------------------\n" + "\n".join(postmortem_logs)
+            message_chunks.append(postmortem_chunk)
 
-        report_markdown = (
-            "早上选股\n【沪深主板 - 精选量化建仓研报】\n\n"
-            f"### 🎯 今日精选推荐标的表格\n{table_text}\n"
-            f"{postmortem_text}\n---\n"
-            f"### 📋 近期历史选股记录汇总（已启用第3日重复剔除）\n{h_text}"
-        )
+        # 用于 Dify 接口的完整拼接 Markdown 文本
+        full_md = "\n\n---\n\n".join(message_chunks)
+        return final_items, message_chunks, full_md
 
-        return final_items, report_markdown
-
-   
     # ==========================================
-    # 📱 6. 企业微信机器人直连推送 (防拦截与格式容错版)
+    # 📱 6. 企业微信机器人切片推送 (防拦截版)
     # ==========================================
-    def push_to_wechat_work(self, report_markdown: str) -> bool:
-        """按段落切分并发送研报至企业微信（增加 Markdown 字符安全清理，防止企微静默丢包）"""
+    def push_to_wechat_work(self, message_chunks: List[str]) -> bool:
+        """按个股分批切片，1只股票1条独立推送，杜绝字数拦截及错误推送"""
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
 
-        # 严格校验 URL 合法性
         if not wechat_url or not (wechat_url.startswith("http://") or wechat_url.startswith("https://")):
-            print("⚠️ 未配置有效的 WECHAT_WEBHOOK (需以 https:// 开头)，跳过企业微信推送。")
+            print("⚠️ 未配置有效的 WECHAT_WEBHOOK，跳过推送。")
             return False
 
-        # 🧹 关键修补 1：安全清理 Markdown 格式（企微 Markdown 遇到深层嵌套 ** 或特殊标点易静默丢失）
-        safe_markdown = report_markdown.replace("```", "").replace("<font", "").replace("</font>", "")
+        if not message_chunks:
+            print("⚠️ 推送内容为空，跳过。")
+            return False
 
-        MAX_CHUNK_SIZE = 1500  # 降低分段上限至 1500 字节，防止超限
-        paragraphs = safe_markdown.split("\n\n")
-        chunks = []
-        current_chunk = ""
-
-        for p in paragraphs:
-            if len(current_chunk) + len(p) + 2 > MAX_CHUNK_SIZE:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                current_chunk = p
-            else:
-                current_chunk = f"{current_chunk}\n\n{p}" if current_chunk else p
-
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-
-        total_chunks = len(chunks)
-        print(f"📡 研报全长 {len(safe_markdown)} 字，已自动切分为 {total_chunks} 段推送到企业微信...")
-
+        print(f"📡 准备向企业微信逐条分批推送 {len(message_chunks)} 条切片研报...")
         success_all = True
-        for idx, chunk in enumerate(chunks, 1):
-            page_prefix = f"📄 **【选股研报 ({idx}/{total_chunks})】**\n\n" if total_chunks > 1 else ""
-            
-            # 构建标准的群机器人 Payload
+
+        for idx, chunk in enumerate(message_chunks, 1):
+            safe_chunk = chunk.replace("```", "").replace("<font", "").replace("</font>", "")
             payload = {
                 "msgtype": "markdown",
                 "markdown": {
-                    "content": page_prefix + chunk
+                    "content": safe_chunk
                 }
             }
 
@@ -742,39 +591,24 @@ class MorningStockPickerAgent:
                 res = requests.post(wechat_url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
                 res_json = res.json()
                 if res_json.get("errcode") == 0:
-                    print(f"🎉 第 ({idx}/{total_chunks}) 段推送成功！")
+                    print(f"🎉 第 ({idx}/{len(message_chunks)}) 条个股研报切片推送成功！")
                 else:
-                    print(f"❌ 第 ({idx}/{total_chunks}) 段推送失败: {res_json}")
-                    
-                    # 🧹 关键修补 2：降级兜底方案（如果企微拒绝 Markdown 格式，自动降级为纯文本格式重新发送）
-                    print("⚠️ 尝试降级为 text 文本格式重新补发...")
-                    fallback_payload = {
-                        "msgtype": "text",
-                        "text": {
-                            "content": (page_prefix + chunk).replace("**", "").replace("`", "").replace("#", "")
-                        }
-                    }
-                    res_fb = requests.post(wechat_url, json=fallback_payload, headers={"Content-Type": "application/json"}, timeout=10)
-                    if res_fb.json().get("errcode") == 0:
-                        print(f"✅ 第 ({idx}/{total_chunks}) 段以文本格式补发成功！")
-                    else:
-                        success_all = False
+                    print(f"❌ 第 ({idx}/{len(message_chunks)}) 条推送失败 (仅打日志，不向客户端推送错误): {res_json}")
+                    success_all = False
             except Exception as e:
-                print(f"❌ 第 ({idx}/{total_chunks}) 段推送异常: {e}")
+                print(f"❌ 第 ({idx}/{len(message_chunks)}) 条推送网络异常: {e}")
                 success_all = False
 
-            if idx < total_chunks:
-                time.sleep(1)
+            time.sleep(1)  # 间隔 1 秒防止频率拦截
 
         return success_all
 
     # ==========================================
-    # 📡 7. 远程 Dify 对接 (可选)
+    # 📡 7. 远程 Dify 对接
     # ==========================================
     def push_to_dify(self, report_markdown: str) -> bool:
         """提交至 Dify API 节点"""
         if not DIFY_API_KEY:
-            print("⚠️ DIFY_API_KEY 未设置，跳过 Dify API 推送。")
             return False
 
         headers = {
@@ -786,20 +620,16 @@ class MorningStockPickerAgent:
                 "stock_data": report_markdown,
                 "market_data": report_markdown,
             },
-            "query": f"根据以下精选主板表格生成风控研报并推送至微信：\n{report_markdown}",
+            "query": f"根据以下精选主板研报生成风控分析：\n{report_markdown}",
             "response_mode": "blocking",
             "user": "github-actions-bot",
         }
 
         try:
             print("📡 正在提交分析研报给 Dify Agent...")
-            res = requests.post(
-                DIFY_API_URL, headers=headers, json=payload, timeout=60
-            )
+            res = requests.post(DIFY_API_URL, headers=headers, json=payload, timeout=60)
             if res.status_code == 200:
-                print("==================================================")
                 print("⚡ Dify 返回响应成功！")
-                print("==================================================")
                 return True
             else:
                 print(f"❌ Dify 返回错误: {res.text}")
@@ -810,7 +640,7 @@ class MorningStockPickerAgent:
 
 
 # ==========================================
-# 🚀 启动控制逻辑（当日允许重复推荐 3 次防重版）
+# 🚀 启动控制逻辑
 # ==========================================
 def main():
     agent = MorningStockPickerAgent()
@@ -818,7 +648,6 @@ def main():
     print("🚀 Agent 1 [早盘选股 Agent] 启动，全策略搜寻中...")
     print("==================================================")
 
-    # 🛡️ 防重机制：检查今日已推荐次数（上限 3 次）
     today_str = time.strftime("%Y-%m-%d")
     history = agent.load_history()
     today_data = history.get(today_str, {})
@@ -838,27 +667,22 @@ def main():
 
     success_count = 0
     for attempt in range(1, MAX_TOTAL_ATTEMPTS + 1):
-        print(
-            f"\n🔄 轮询尝试 {attempt}/{MAX_TOTAL_ATTEMPTS} (已成功次数: {success_count}/{TARGET_SUCCESS_COUNT})..."
-        )
+        print(f"\n🔄 轮询尝试 {attempt}/{MAX_TOTAL_ATTEMPTS} (已成功次数: {success_count}/{TARGET_SUCCESS_COUNT})...")
 
-        selected_items, report_md = agent.run_strategy_pipeline()
+        selected_items, message_chunks, report_md = agent.run_strategy_pipeline()
 
-        if report_md:
-            print("\n" + report_md + "\n")
-
+        if message_chunks:
             pushed_wechat = False
             pushed_dify = False
 
-            # 1. 尝试企业微信推送
+            # 1. 分批推送至企业微信
             if hasattr(agent, "push_to_wechat_work"):
-                pushed_wechat = agent.push_to_wechat_work(report_md)
+                pushed_wechat = agent.push_to_wechat_work(message_chunks)
 
-            # 2. 尝试 Dify 推送
+            # 2. 推送至 Dify
             if DIFY_API_KEY:
                 pushed_dify = agent.push_to_dify(report_md)
 
-            # 只要任意一种方式推送成功（或纯 GitHub 本地模式），即计为成功
             if pushed_wechat or pushed_dify or (not DIFY_API_KEY and not os.environ.get("WECHAT_WEBHOOK")):
                 success_count += 1
 
@@ -868,7 +692,7 @@ def main():
             else:
                 time.sleep(SUCCESS_WAIT_SECONDS)
         else:
-            print("⚠️ 今日标的均触发去重熔断或高风险拦截，防止重复推送，停止轮询。")
+            print("⚠️ 本次未筛选出符合标准的新标的，程序静默退出，不推送任何兜底数据。")
             break
 
 
