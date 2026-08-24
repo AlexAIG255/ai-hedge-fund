@@ -2,42 +2,60 @@
 Agent 2: 晚间复盘 Agent (支持多源行情容错 + 自动防误杀 + 5-10 日观察期逐日跟踪 + 胜败归因)
 """
 
-import json
 import os
+import json
 import time
-from datetime import datetime
 import requests
 
-# 智能自动定位根目录下的 daily_picks_history.json
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.abspath(os.path.join(CURRENT_DIR, "../.."))
-
-HISTORY_FILE = os.path.join(ROOT_DIR, "daily_picks_history.json")
-if not os.path.exists(HISTORY_FILE):
-    HISTORY_FILE = os.path.join(CURRENT_DIR, "daily_picks_history.json")
-
-POSTMORTEM_FILE = os.path.join(ROOT_DIR, "skills_postmortem.md")
-
+# 🎯 修改点：直接读取和保存到仓库根目录（与早盘 morning_picker 保存的位置保持一致）
+HISTORY_FILE = "daily_picks_history.json"
+TRACKER_FILE = "portfolio_tracker.json"
+POSTMORTEM_FILE = "skills_postmortem.md"
 
 class EveningReviewAgent:
-
-    def __init__(self, history_file: str = HISTORY_FILE, postmortem_file: str = POSTMORTEM_FILE):
+    def __init__(
+        self,
+        history_file: str = HISTORY_FILE,
+        tracker_file: str = TRACKER_FILE,
+        postmortem_file: str = POSTMORTEM_FILE
+    ):
         self.history_file = history_file
+        self.tracker_file = tracker_file
         self.postmortem_file = postmortem_file
 
-    def load_history(self) -> dict:
-        print(f"🔍 [DEBUG] 尝试读取历史文件路径: {self.history_file}")
+    def load_history(self):
+        """从根目录读取早盘历史"""
         if os.path.exists(self.history_file):
             try:
                 with open(self.history_file, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    print(f"✅ [DEBUG] 成功读取 JSON，包含日期天数: {len(data)}")
-                    return data
+                    return json.load(f)
             except Exception as e:
-                print(f"❌ 读取历史选股文件失败: {e}")
+                print(f"❌ 读取历史文件失败: {e}")
         else:
-            print(f"❌ 找不到历史文件: {self.history_file}")
+            print(f"⚠️ 未找到历史文件: {self.history_file}")
         return {}
+
+    def load_tracker(self):
+        """从根目录读取跟踪池"""
+        if os.path.exists(self.tracker_file):
+            try:
+                with open(self.tracker_file, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"❌ 读取跟踪池文件失败: {e}")
+        else:
+            print(f"⚠️ 未找到跟踪池文件: {self.tracker_file}")
+        return []
+
+    def save_tracker(self, tracker_data):
+        """更新并保存跟踪池到根目录"""
+        try:
+            with open(self.tracker_file, "w", encoding="utf-8") as f:
+                json.dump(tracker_data, f, ensure_ascii=False, indent=2)
+            print("💾 跟踪池数据已成功更新保存！")
+        except Exception as e:
+            print(f"❌ 保存跟踪池失败: {e}")
+
 
     def fetch_market_quotes(self, codes: list) -> dict:
         """获取盘后最新行情（东财 + 新浪双源备用，带兜底逻辑）"""
