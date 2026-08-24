@@ -7,7 +7,7 @@
     "entry_price": 11.34,
     "stop_loss": 10.77,
     "target_price": 12.25,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -29,6 +29,11 @@
         "date": "2026-08-24",
         "close": 11.5,
         "return_pct": 1.41
+      },
+      {
+        "date": "2026-08-24",
+        "close": 11.1,
+        "return_pct": -2.12
       }
     ]
   },
@@ -91,7 +96,7 @@
     "entry_price": 13.52,
     "stop_loss": 12.84,
     "target_price": 14.6,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -113,6 +118,11 @@
         "date": "2026-08-24",
         "close": 13.49,
         "return_pct": -0.22
+      },
+      {
+        "date": "2026-08-24",
+        "close": 13.06,
+        "return_pct": -3.4
       }
     ]
   },
@@ -124,7 +134,7 @@
     "entry_price": 17.56,
     "stop_loss": 16.68,
     "target_price": 18.96,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -146,6 +156,11 @@
         "date": "2026-08-24",
         "close": 18.67,
         "return_pct": 6.32
+      },
+      {
+        "date": "2026-08-24",
+        "close": 17.75,
+        "return_pct": 1.08
       }
     ]
   },
@@ -180,7 +195,7 @@
     "entry_price": 3.92,
     "stop_loss": 3.72,
     "target_price": 4.23,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -202,6 +217,11 @@
         "date": "2026-08-24",
         "close": 3.97,
         "return_pct": 1.28
+      },
+      {
+        "date": "2026-08-24",
+        "close": 4.0,
+        "return_pct": 2.04
       }
     ]
   },
@@ -236,7 +256,7 @@
     "entry_price": 5.23,
     "stop_loss": 4.97,
     "target_price": 5.65,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -253,6 +273,11 @@
         "date": "2026-08-24",
         "close": 5.08,
         "return_pct": -2.87
+      },
+      {
+        "date": "2026-08-24",
+        "close": 5.12,
+        "return_pct": -2.1
       }
     ]
   },
@@ -264,7 +289,7 @@
     "entry_price": 4.9,
     "stop_loss": 4.66,
     "target_price": 5.29,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -281,6 +306,11 @@
         "date": "2026-08-24",
         "close": 4.99,
         "return_pct": 1.84
+      },
+      {
+        "date": "2026-08-24",
+        "close": 4.96,
+        "return_pct": 1.22
       }
     ]
   },
@@ -292,8 +322,8 @@
     "entry_price": 35.33,
     "stop_loss": 33.56,
     "target_price": 38.16,
-    "days_tracked": 3,
-    "status": "TRACKING",
+    "days_tracked": 4,
+    "status": "WIN_CLOSE",
     "history": [
       {
         "date": "2026-08-22",
@@ -309,6 +339,11 @@
         "date": "2026-08-24",
         "close": 37.0,
         "return_pct": 4.73
+      },
+      {
+        "date": "2026-08-24",
+        "close": 38.5,
+        "return_pct": 8.97
       }
     ]
   },
@@ -320,7 +355,7 @@
     "entry_price": 5.84,
     "stop_loss": 5.55,
     "target_price": 6.31,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -337,6 +372,11 @@
         "date": "2026-08-24",
         "close": 5.8,
         "return_pct": -0.68
+      },
+      {
+        "date": "2026-08-24",
+        "close": 5.69,
+        "return_pct": -2.57
       }
     ]
   },
@@ -348,7 +388,7 @@
     "entry_price": 2.51,
     "stop_loss": 2.38,
     "target_price": 2.71,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -365,6 +405,11 @@
         "date": "2026-08-24",
         "close": 2.54,
         "return_pct": 1.2
+      },
+      {
+        "date": "2026-08-24",
+        "close": 2.54,
+        "return_pct": 1.2
       }
     ]
   },
@@ -376,7 +421,7 @@
     "entry_price": 47.62,
     "stop_loss": 45.24,
     "target_price": 51.43,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -393,6 +438,11 @@
         "date": "2026-08-24",
         "close": 49.0,
         "return_pct": 2.9
+      },
+      {
+        "date": "2026-08-24",
+        "close": 48.5,
+        "return_pct": 1.85
       }
     ]
   },
@@ -404,7 +454,7 @@
     "entry_price": 41.06,
     "stop_loss": 39.01,
     "target_price": 44.34,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -421,6 +471,11 @@
         "date": "2026-08-24",
         "close": 40.73,
         "return_pct": -0.8
+      },
+      {
+        "date": "2026-08-24",
+        "close": 39.5,
+        "return_pct": -3.8
       }
     ]
   },
@@ -432,7 +487,7 @@
     "entry_price": 3.95,
     "stop_loss": 3.75,
     "target_price": 4.27,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -444,6 +499,11 @@
         "date": "2026-08-24",
         "close": 3.93,
         "return_pct": -0.51
+      },
+      {
+        "date": "2026-08-24",
+        "close": 3.91,
+        "return_pct": -1.01
       }
     ]
   },
@@ -455,7 +515,7 @@
     "entry_price": 6.23,
     "stop_loss": 5.92,
     "target_price": 6.73,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -467,6 +527,11 @@
         "date": "2026-08-24",
         "close": 6.18,
         "return_pct": -0.8
+      },
+      {
+        "date": "2026-08-24",
+        "close": 6.15,
+        "return_pct": -1.28
       }
     ]
   },
@@ -478,7 +543,7 @@
     "entry_price": 8.21,
     "stop_loss": 7.8,
     "target_price": 8.87,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -490,6 +555,11 @@
         "date": "2026-08-24",
         "close": 8.32,
         "return_pct": 1.34
+      },
+      {
+        "date": "2026-08-24",
+        "close": 8.23,
+        "return_pct": 0.24
       }
     ]
   },
@@ -501,7 +571,7 @@
     "entry_price": 13.9,
     "stop_loss": 13.21,
     "target_price": 15.01,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -513,6 +583,11 @@
         "date": "2026-08-24",
         "close": 14.0,
         "return_pct": 0.72
+      },
+      {
+        "date": "2026-08-24",
+        "close": 13.77,
+        "return_pct": -0.94
       }
     ]
   },
@@ -524,7 +599,7 @@
     "entry_price": 45.45,
     "stop_loss": 43.18,
     "target_price": 49.09,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -536,6 +611,11 @@
         "date": "2026-08-24",
         "close": 45.21,
         "return_pct": -0.53
+      },
+      {
+        "date": "2026-08-24",
+        "close": 45.42,
+        "return_pct": -0.07
       }
     ]
   },
@@ -547,7 +627,7 @@
     "entry_price": 5.19,
     "stop_loss": 4.93,
     "target_price": 5.61,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -559,6 +639,11 @@
         "date": "2026-08-24",
         "close": 5.18,
         "return_pct": -0.19
+      },
+      {
+        "date": "2026-08-24",
+        "close": 5.16,
+        "return_pct": -0.58
       }
     ]
   },
@@ -570,7 +655,7 @@
     "entry_price": 11.15,
     "stop_loss": 10.59,
     "target_price": 12.04,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -582,6 +667,11 @@
         "date": "2026-08-24",
         "close": 11.13,
         "return_pct": -0.18
+      },
+      {
+        "date": "2026-08-24",
+        "close": 11.2,
+        "return_pct": 0.45
       }
     ]
   },
@@ -593,7 +683,7 @@
     "entry_price": 20.77,
     "stop_loss": 19.73,
     "target_price": 22.43,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -605,6 +695,11 @@
         "date": "2026-08-24",
         "close": 21.03,
         "return_pct": 1.25
+      },
+      {
+        "date": "2026-08-24",
+        "close": 21.0,
+        "return_pct": 1.11
       }
     ]
   },
@@ -616,7 +711,7 @@
     "entry_price": 11.5,
     "stop_loss": 10.92,
     "target_price": 12.42,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [
       {
@@ -628,6 +723,11 @@
         "date": "2026-08-24",
         "close": 11.42,
         "return_pct": -0.7
+      },
+      {
+        "date": "2026-08-24",
+        "close": 11.38,
+        "return_pct": -1.04
       }
     ]
   },
@@ -639,13 +739,18 @@
     "entry_price": 9.03,
     "stop_loss": 8.58,
     "target_price": 9.75,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [
       {
         "date": "2026-08-24",
         "close": 9.01,
         "return_pct": -0.22
+      },
+      {
+        "date": "2026-08-24",
+        "close": 9.06,
+        "return_pct": 0.33
       }
     ]
   },
@@ -657,9 +762,14 @@
     "entry_price": 5.29,
     "stop_loss": 5.03,
     "target_price": 5.71,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [
+      {
+        "date": "2026-08-24",
+        "close": 5.29,
+        "return_pct": 0.0
+      },
       {
         "date": "2026-08-24",
         "close": 5.29,
@@ -675,9 +785,14 @@
     "entry_price": 10.09,
     "stop_loss": 9.59,
     "target_price": 10.9,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [
+      {
+        "date": "2026-08-24",
+        "close": 10.09,
+        "return_pct": 0.0
+      },
       {
         "date": "2026-08-24",
         "close": 10.09,
@@ -693,13 +808,18 @@
     "entry_price": 7.36,
     "stop_loss": 6.99,
     "target_price": 7.95,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [
       {
         "date": "2026-08-24",
         "close": 7.36,
         "return_pct": 0.0
+      },
+      {
+        "date": "2026-08-24",
+        "close": 7.41,
+        "return_pct": 0.68
       }
     ]
   },
@@ -711,9 +831,14 @@
     "entry_price": 3.71,
     "stop_loss": 3.52,
     "target_price": 4.01,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [
+      {
+        "date": "2026-08-24",
+        "close": 3.71,
+        "return_pct": 0.0
+      },
       {
         "date": "2026-08-24",
         "close": 3.71,
@@ -729,14 +854,115 @@
     "entry_price": 5.28,
     "stop_loss": 5.02,
     "target_price": 5.7,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [
       {
         "date": "2026-08-24",
         "close": 5.27,
         "return_pct": -0.19
+      },
+      {
+        "date": "2026-08-24",
+        "close": 5.29,
+        "return_pct": 0.19
       }
     ]
+  },
+  {
+    "code": "600110",
+    "name": "诺德股份",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-08-24",
+    "entry_price": 10.95,
+    "stop_loss": 10.4,
+    "target_price": 11.83,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600272",
+    "name": "开开实业",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-08-24",
+    "entry_price": 17.34,
+    "stop_loss": 16.47,
+    "target_price": 18.73,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600127",
+    "name": "金健米业",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-08-24",
+    "entry_price": 8.16,
+    "stop_loss": 7.75,
+    "target_price": 8.81,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600611",
+    "name": "大众交通",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-08-24",
+    "entry_price": 4.72,
+    "stop_loss": 4.48,
+    "target_price": 5.1,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600162",
+    "name": "香江控股",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-24",
+    "entry_price": 4.09,
+    "stop_loss": 3.89,
+    "target_price": 4.42,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600288",
+    "name": "大恒科技",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-24",
+    "entry_price": 11.27,
+    "stop_loss": 10.71,
+    "target_price": 12.17,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600449",
+    "name": "宁夏建材",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-24",
+    "entry_price": 13.11,
+    "stop_loss": 12.45,
+    "target_price": 14.16,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "000712",
+    "name": "锦龙股份",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-24",
+    "entry_price": 9.04,
+    "stop_loss": 8.59,
+    "target_price": 9.76,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
