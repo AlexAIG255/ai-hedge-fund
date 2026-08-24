@@ -1,14 +1,21 @@
+"""
+Agent 2: 晚盘收盘复盘与持仓跟踪 Agent (Evening Review Agent)
+每日收盘后自动同步腾讯 HQ 最新收盘价，动态更新建仓跟踪池，
+实现 Trigger-based（止盈/止损/10日满期）自动结案，并推送图表化 Markdown 总结至企业微信。
+"""
+
 import os
 import json
 import time
 import re
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime
 
 # 🎯 严格匹配根目录数据文件
 HISTORY_FILE = "daily_picks_history.json"
 TRACKER_FILE = "portfolio_tracker.json"
 POSTMORTEM_FILE = "skills_postmortem.md"
+
 
 class EveningReviewAgent:
     def __init__(
@@ -30,7 +37,6 @@ class EveningReviewAgent:
                     if isinstance(data, list):
                         return data
                     elif isinstance(data, dict):
-                        # 兼容有 metadata 的 json 结构，提取真正的股票列表
                         return data.get("records", data.get("tracker", []))
             except Exception as e:
                 print(f"❌ 读取跟踪池失败: {e}")
@@ -46,8 +52,7 @@ class EveningReviewAgent:
             print(f"❌ 保存跟踪池失败: {e}")
 
     def fetch_closing_quotes(self, stock_codes: list) -> dict:
-        """从腾讯 API 获取收盘实时价格"""
-        # 🛡️ 严格过滤非 6 位数字代码（防止把 run_count/records 当成股票）
+        """从腾讯 API 获取收盘实时价格与今日涨跌幅"""
         valid_codes = [str(c) for c in stock_codes if re.match(r"^\d{6}$", str(c))]
         if not valid_codes:
             return {}
@@ -61,22 +66,25 @@ class EveningReviewAgent:
                 for line in res.text.split(";"):
                     if '="' in line:
                         parts = line.split('="')
-                        symbol = parts[0].strip().replace("v_sh", "").replace("v_sz", "")
                         fields = parts[1].replace('"', "").split("~")
-                        if len(fields) > 3:
+                        if len(fields) > 32:
                             code = fields[2]
                             close_p = float(fields[3]) if fields[3] else 0.0
+                            today_pct = float(fields[32]) if fields[32] else 0.0
                             if close_p > 0:
-                                quotes[code] = close_p
+                                quotes[code] = {
+                                    "close": close_p,
+                                    "pct": today_pct
+                                }
         except Exception as e:
-            print(f"⚠️ 获收盘行情失败: {e}")
+            print(f"⚠️ 获取收盘行情失败: {e}")
         return quotes
 
     def run_evening_review(self) -> str:
         tracker = self.load_tracker()
         today_str = datetime.now().strftime("%Y-%m-%d")
 
-        # 🛡️ 过滤出真正处于跟踪期（未结案）且代码合规的股票
+        # 🛡️ 过滤出处于活跃跟踪期的标的
         active_items = [
             item for item in tracker 
             if isinstance(item, dict) 
@@ -100,7 +108,7 @@ class EveningReviewAgent:
             code = item["code"]
             name = item.get("name", "未知")
             entry_p = float(item.get("entry_price", item.get("buy_price", 0)))
-            target_p = float(item.get("target_price", entry_p * 1.10))
+            target_p = float(item.get("target_price", entry_p * 1.08))
             stop_p = float(item.get("stop_loss", entry_p * 0.95))
             days_tracked = item.get("days_tracked", 0) + 1
             item["days_tracked"] = days_tracked
@@ -109,46 +117,47 @@ class EveningReviewAgent:
                 table_rows.append(f"| {today_str} (T+{days_tracked}) | `{code}` | {name} | `{entry_p:.2f}` ➔ `N/A` | `0.00%` | `0.00%` | `{target_p:.2f}/{stop_p:.2f}` | ⌛ 行情延迟 |")
                 continue
 
-            close_p = quotes[code]
+            q_info = quotes[code]
+            close_p = q_info["close"]
+            today_chg = q_info["pct"]
             total_ret = round((close_p - entry_p) / entry_p * 100, 2)
-            today_chg = round(float(item.get("today_change", 0)), 2) # 可选今日涨跌
 
-            # 🎯 核心需求 1：破位止损后立即结案，次日开始停止记录
+            # 🎯 Trigger-based 自动破位/止盈/满期结案
             status_desc = ""
             if close_p <= stop_p:
-                item["status"] = "CLOSED"  # 标记为已结案，下次复盘直接跳过
+                item["status"] = "CLOSED"
                 item["close_reason"] = "破位止损"
                 item["close_date"] = today_str
-                status_desc = "🔴 触发止损 (停止后续记录)"
-                review_logs.append(f"🚨 **破位止损警报**: **{name}** (`{code}`) 触及止损价 `{stop_p}元`，今日收盘 `{close_p}元` (`{total_ret}%`)，已移出跟踪池。")
+                status_desc = "🔴 触发止损 (停止记录)"
+                review_logs.append(f"🚨 **破位止损警报**: **{name}** (`{code}`) 触及止损价 `{stop_p:.2f}元`，今日收盘 `{close_p:.2f}元` (`{total_ret}%`)，已移出跟踪池。")
 
             elif close_p >= target_p:
-                item["status"] = "CLOSED"  # 止盈结案，下次跳过
+                item["status"] = "CLOSED"
                 item["close_reason"] = "止盈达标"
                 item["close_date"] = today_str
                 status_desc = "🎉 止盈达标 (成功结案)"
-                review_logs.append(f"🎉 **止盈达标喜报**: **{name}** (`{code}`) 达标目标价 `{target_p}元`，今日收盘 `{close_p}元` (`+{total_ret}%`)，成功结案。")
+                review_logs.append(f"🎉 **止盈达标喜报**: **{name}** (`{code}`) 达到目标价 `{target_p:.2f}元`，今日收盘 `{close_p:.2f}元` (`+{total_ret}%`)，成功结案。")
 
             elif days_tracked >= 10:
-                item["status"] = "CLOSED"  # 10天满期结案
+                item["status"] = "CLOSED"
                 item["close_reason"] = "观察期满"
                 item["close_date"] = today_str
                 status_desc = "📌 满10天移出"
                 review_logs.append(f"📌 **观察期满**: **{name}** (`{code}`) 已跟踪 10 个交易日，累计收益 `{total_ret}%`，退出跟踪。")
 
             else:
-                item["status"] = "TRACKING"  # 继续跟踪
+                item["status"] = "TRACKING"
                 status_desc = "🔄 震荡持仓"
 
             ret_sign = f"+{total_ret}%" if total_ret > 0 else f"{total_ret}%"
+            today_chg_sign = f"+{today_chg:.2f}%" if today_chg > 0 else f"{today_chg:.2f}%"
+            
             table_rows.append(
-                f"| {today_str} (T+{days_tracked}) | `{code}` | {name} | `{entry_p:.2f}` ➔ `{close_p:.2f}` | `{today_chg}%` | `{ret_sign}` | `{target_p:.2f}/{stop_p:.2f}` | {status_desc} |"
+                f"| {today_str} (T+{days_tracked}) | `{code}` | {name} | `{entry_p:.2f}` ➔ `{close_p:.2f}` | `{today_chg_sign}` | `{ret_sign}` | `{target_p:.2f}/{stop_p:.2f}` | {status_desc} |"
             )
 
-        # 保存更新后的 JSON，确保已止损标的状态变成 CLOSED
         self.save_tracker(tracker)
 
-        # 拼装推送内容
         report_md = f"🌆 **【晚盘收盘复盘与持仓跟踪】({today_str})**\n\n"
         report_md += "\n".join(table_rows) + "\n\n"
         if review_logs:
@@ -169,11 +178,13 @@ class EveningReviewAgent:
         except Exception as e:
             print(f"❌ 推送失败: {e}")
 
+
 def main():
     agent = EveningReviewAgent()
     report = agent.run_evening_review()
     print(report)
     agent.push_to_wechat(report)
+
 
 if __name__ == "__main__":
     main()
