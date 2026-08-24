@@ -13,6 +13,7 @@ jobs:
   morning-picker:
     name: Run Morning Stock Picker
     runs-on: ubuntu-latest
+    # 定时触发早盘，或手动触发时运行
     if: github.event.schedule == '0 1 * * 1-5' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -26,18 +27,19 @@ jobs:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
         run: python hedge_fund/strategies/morning_picker.py
 
-      # 关键步骤：把早盘生成的选股 JSON 提交存入仓库
+      # 修正：将根目录生成的选股历史与跟踪池提交到 Git 仓库
       - name: Commit and Push Pick History
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add hedge_fund/strategies/daily_picks_history.json || true
+          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
           git commit -m "Auto-save morning picks history [skip ci]" || exit 0
           git push
 
   evening-review:
     name: Run Evening Review
     runs-on: ubuntu-latest
+    # 定时触发晚盘，或手动触发时运行
     if: github.event.schedule == '30 7 * * 1-5' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
@@ -50,3 +52,12 @@ jobs:
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
         run: python hedge_fund/strategies/evening_review.py
+
+      # 补全：将晚盘复盘更新后的持仓跟踪与日志提交到 Git 仓库
+      - name: Commit and Push Evening Review Changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
+          git commit -m "Auto-save evening review logs [skip ci]" || exit 0
+          git push
