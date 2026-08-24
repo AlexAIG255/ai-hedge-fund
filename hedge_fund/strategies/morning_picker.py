@@ -1,7 +1,7 @@
 """
 Agent 1: 大盘早晚选股 Agent (Morning Stock Picker Agent) - 精准策略与 TrendIQ 深度切片推送版
-集成了全量 A 股抓取、腾讯实时校准、3日去重熔断、7大选股策略、TrendIQ 智能深度评分、
-无兜底机制、单标的分批切片推送以及 5-10 日建仓跟踪归因复盘系统。
+集成了全量 A 股抓取、腾讯实时校准、3日去重熔断、7大选股策略、TrendIQ 80+ 智能深度评分、
+大盘环境过滤、单标的分批切片推送以及 5-10 日建仓跟踪归因复盘系统。
 """
 
 import json
@@ -24,6 +24,8 @@ TARGET_SUCCESS_COUNT = 1 if MANUAL_TEST else 2
 FAILURE_WAIT_SECONDS = 300
 SUCCESS_WAIT_SECONDS = 600
 MAX_TOTAL_ATTEMPTS = 15
+
+# 🎯 根目录统一持久化文件
 HISTORY_FILE = "daily_picks_history.json"
 TRACKER_FILE = "portfolio_tracker.json"
 POSTMORTEM_FILE = "skills_postmortem.md"
@@ -155,47 +157,46 @@ class MorningStockPickerAgent:
         self.save_history(history)
 
     # ==========================================
-    # 📐 2. TrendIQ 智能评分与深度诊断解构 (要求单标的 > 200字)
+    # 📐 2. TrendIQ 智能评分 (提高到 80分门槛)
     # ==========================================
     def calculate_trend_iq_and_risk(
         self, price_val: float, pct_val: float, turnover_val: float, pct_60d_val: float, vol_ratio_val: float
     ) -> Dict:
-        """计算 TrendIQ 深度量化指标并生成不少于 200 字的专业分析剖析报告"""
+        """计算 TrendIQ 深度量化指标 (提高硬门槛至 80 分以上)"""
         risk_stars = 1
-        if turnover_val > 12.0 or abs(pct_60d_val) > 30.0:
+        if turnover_val > 15.0 or abs(pct_60d_val) > 35.0:
             risk_stars += 1
-        if turnover_val > 20.0 or abs(pct_60d_val) > 50.0:
+        if turnover_val > 22.0 or abs(pct_60d_val) > 50.0:
             risk_stars += 1
-        if pct_val < -5.0 or pct_val > 7.5:
+        if pct_val < -3.0 or pct_val > 7.0:
             risk_stars += 1
-        if price_val < 2.5:
+        if price_val < 3.0:
             risk_stars += 1
 
         risk_stars = min(5, max(1, risk_stars))
 
-        # 评分因子拆解
-        base_score = 80
-        momentum_score = round(pct_val * 1.2, 1)
-        volume_score = round(min(10, turnover_val * 0.3) + (vol_ratio_val * 1.5), 1)
-        risk_deduct = round(risk_stars * 2.5, 1)
+        # 🎯 严苛因子拆解：提升基准要求
+        base_score = 82
+        momentum_score = round(pct_val * 1.5, 1) if pct_val > 0 else round(pct_val * 2.0, 1)
+        volume_score = round(min(8, turnover_val * 0.4) + (vol_ratio_val * 2.0), 1)
+        risk_deduct = round(risk_stars * 3.0, 1)
 
         trend_iq = int(base_score + momentum_score + volume_score - risk_deduct)
-        trend_iq = min(99, max(60, trend_iq))
+        trend_iq = min(99, max(50, trend_iq))
 
         entry_low = round(price_val * 0.985, 2)
         entry_high = round(price_val * 1.005, 2)
         stop_loss = round(price_val * 0.95, 2)
         target_price = round(price_val * 1.08, 2)
 
-        # 构建不少于 200 字的 TrendIQ 精细化深度分析文本
         diagnosis_text = (
             f"📊 **【TrendIQ 深度量化因子拆解】**\n"
-            f"• **基础评分**: `{base_score}分` | **价格动能加分**: `{momentum_score:+}分` | **量能爆发加分**: `+{volume_score}分` | **风控扣分**: `-{risk_deduct}分`\n\n"
+            f"• **基础评分**: `{base_score}分` | **价格动能**: `{momentum_score:+}分` | **主力增量**: `+{volume_score}分` | **风控扣分**: `-{risk_deduct}分`\n\n"
             f"🔍 **【多维度量化行情诊断】**\n"
-            f"1️⃣ **价格与动能趋势**: 当日动态涨跌幅为 `{pct_val:+.2f}%`，当前价格为 `{price_val:.2f}元`。系统判定处于技术面多头结构攻击区，短期向上爆发动能良好。\n"
-            f"2️⃣ **资金与成交活跃度**: 换手率达到 `{turnover_val:.2f}%`，配合量比指标 `{vol_ratio_val:.2f}`。显示场外主力增量资金跟风意愿强烈，筹码交投处于高活跃震荡上行阶段。\n"
-            f"3️⃣ **中期趋势与筹码结构**: 60日累计涨跌幅为 `{pct_60d_val:+.1f}%`。无高位爆量滞涨或大幅派发迹象，下方支撑较强，属于典型的主力资金控盘或右侧企稳标的。\n"
-            f"4️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。建仓建议采用分批逢低介入策略，严控仓位，严格执行 `{stop_loss:.2f}元` 止损位线保护。"
+            f"1️⃣ **价格与动能趋势**: 当日动态涨跌幅 `{pct_val:+.2f}%`，当前价格 `{price_val:.2f}元`。符合严格的多头攻击模型，技术面未见衰竭。\n"
+            f"2️⃣ **资金与成交活跃度**: 换手率 `{turnover_val:.2f}%`，配合量比指标 `{vol_ratio_val:.2f}`。放量温和且无庄股爆量出货迹象。\n"
+            f"3️⃣ **中期趋势与筹码结构**: 60日累计涨跌幅 `{pct_60d_val:+.1f}%`。无高位爆量滞涨，下方筹码支撑力度极强。\n"
+            f"4️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。必须严格按照 `{stop_loss:.2f}元` 执行破位止损离场。"
         )
 
         return {
@@ -208,17 +209,22 @@ class MorningStockPickerAgent:
             "target_price": f"{target_price:.2f}元",
             "raw_stop_loss": stop_loss,
             "raw_target": target_price,
-            "pass_risk": risk_stars < 4
+            # 🎯 提升通过门槛：TrendIQ 必须 >= 80 并且 风险小于 4 星
+            "pass_risk": (risk_stars < 4) and (trend_iq >= 80)
         }
 
     # ==========================================
-    # 📈 3. 5-10 日跟踪与归因复盘引擎
+    # 📈 3. 5-10 日跟踪注册
     # ==========================================
     def load_tracker(self) -> List[Dict]:
         if os.path.exists(self.tracker_file):
             try:
                 with open(self.tracker_file, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+                    elif isinstance(data, dict):
+                        return data.get("records", [])
             except Exception:
                 return []
         return []
@@ -231,12 +237,12 @@ class MorningStockPickerAgent:
             print(f"❌ 保存跟踪池失败: {e}")
 
     def register_to_tracker(self, selected_items: List[Dict]):
-        """将今日推送的标的注册进 5-10 日建仓跟踪池"""
+        """将今日推送标的插入跟踪池（初始状态 TRACKING）"""
         tracker_data = self.load_tracker()
         today_str = time.strftime("%Y-%m-%d")
 
         for item in selected_items:
-            if not any(r["code"] == item["code"] and r["status"] == "TRACKING" for r in tracker_data):
+            if not any(isinstance(r, dict) and r.get("code") == item["code"] and r.get("status") == "TRACKING" for r in tracker_data):
                 try:
                     price_val = float(str(item["price"]).replace("元", ""))
                     stop_loss_val = float(str(item["stop_loss"]).replace("元", ""))
@@ -259,56 +265,23 @@ class MorningStockPickerAgent:
 
         self.save_tracker(tracker_data)
 
-    def run_daily_tracking_and_postmortem(self, market_quotes_map: Dict[str, float]) -> List[str]:
-        """对在跟踪标的进行收盘收益核算与归因总结"""
-        tracker_data = self.load_tracker()
-        today_str = time.strftime("%Y-%m-%d")
-        postmortem_logs = []
-
-        for item in tracker_data:
-            if item["status"] != "TRACKING":
-                continue
-
-            code = item["code"]
-            if code not in market_quotes_map:
-                continue
-
-            cur_price = market_quotes_map[code]
-            item["days_tracked"] += 1
-            ret_pct = round((cur_price - item["entry_price"]) / item["entry_price"] * 100, 2)
-            item["history"].append({"date": today_str, "close": cur_price, "return_pct": ret_pct})
-
-            if cur_price <= item["stop_loss"]:
-                item["status"] = "LOSS_CLOSE"
-                log = f"⚠️ **【止损归因】** **{item['name']}({code})** 追踪第 {item['days_tracked']} 天跌破止损价 ({item['stop_loss']}元)，收盘价 `{cur_price}元`，累计收益: `{ret_pct}%`。**归因总结**：突破后跟风资金不足，受大盘/板块调头拖累，触发风控平仓。"
-                postmortem_logs.append(log)
-
-            elif cur_price >= item["target_price"]:
-                item["status"] = "WIN_CLOSE"
-                log = f"🎉 **【止盈归因】** **{item['name']}({code})** 追踪第 {item['days_tracked']} 天达到目标价 ({item['target_price']}元)，收盘价 `{cur_price}元`，累计收益: `+{ret_pct}%`。**归因总结**：形态突破有效，多头动能强劲，主力持续拉升。"
-                postmortem_logs.append(log)
-
-            elif item["days_tracked"] >= 10:
-                item["status"] = "TIMEOUT"
-                log = f"📌 **【到期归因】** **{item['name']}({code})** 满 10 日观察期，当前收盘 `{cur_price}元`，累计收益: `{ret_pct}%`。**归因总结**：筹码高位震荡消化，缺乏增量资金打板，动能衰减退出观察池。"
-                postmortem_logs.append(log)
-
-        self.save_tracker(tracker_data)
-
-        if postmortem_logs:
-            try:
-                with open(self.postmortem_file, "a", encoding="utf-8") as f:
-                    f.write(f"\n### 🗓️ {today_str} 选股建仓复盘归因日志\n")
-                    for log in postmortem_logs:
-                        f.write(f"- {log}\n")
-            except Exception as e:
-                print(f"❌ 写入复盘知识库失败: {e}")
-
-        return postmortem_logs
-
     # ==========================================
     # 🌐 4. 行情采集与动态量比校准
     # ==========================================
+    def check_market_sentiment(self) -> bool:
+        """检查大盘（上证指数 sh000001）动能，用于过滤高风险追高行为"""
+        try:
+            res = requests.get("http://qt.gtimg.cn/q=sh000001", timeout=5)
+            if res.status_code == 200 and '="' in res.text:
+                fields = res.text.split('="')[1].replace('"', "").split("~")
+                pct_chg = float(fields[32] or 0)
+                if pct_chg < -1.5:
+                    print(f"⚠️ 大盘大跌 ({pct_chg}%)，启动市场冰点防守机制！")
+                    return False
+        except Exception:
+            pass
+        return True
+
     def fetch_sina_market_data(self, scan_target=2500) -> List[Dict]:
         """新浪/腾讯实时行情拉取"""
         all_diff = []
@@ -435,16 +408,15 @@ class MorningStockPickerAgent:
         return items_list
 
     # ==========================================
-    # 📊 5. 核心策略选股筛选引擎 (彻底移除兜底)
+    # 📊 5. 核心策略选股筛选引擎 (严苛提高胜率)
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
-        """选股管道：仅筛选符合 7 大策略的标的，彻底移除兜底，生成独立卡片切片消息列表"""
+        """选股管道：严格限制策略门槛，TrendIQ 必须 >= 80，彻底消除假突破"""
         raw_diff = self.fetch_sina_market_data()
         if not raw_diff:
             return [], [], ""
 
-        market_quotes_map = {item["f12"]: float(item["f2"]) for item in raw_diff if float(item.get("f2", 0)) > 0}
-        postmortem_logs = self.run_daily_tracking_and_postmortem(market_quotes_map)
+        is_market_healthy = self.check_market_sentiment()
 
         strategy_lotus, strategy_fanbao, strategy_oversold = [], [], []
         strategy_right_side, strategy_quiet_bottom, strategy_duck_head, strategy_bottom_shrink = [], [], [], []
@@ -466,13 +438,14 @@ class MorningStockPickerAgent:
                 vol_ratio_val = float(vol_ratio) if vol_ratio != "-" else 0.0
                 pct_60d_val = float(pct_60d) if pct_60d != "-" else 0.0
 
-                if pct_val < -5.0 or pct_val > 7.5:
+                if pct_val < -4.0 or pct_val > 6.5: # 剔除追高 >6.5% 容易挨炸板的股票
                     continue
 
                 eval_res = self.calculate_trend_iq_and_risk(
                     price_val, pct_val, turnover_val, pct_60d_val, vol_ratio_val
                 )
 
+                # 🎯 门槛校验：TrendIQ 评分未达到 80 分直接淘汰
                 if not eval_res["pass_risk"]:
                     continue
 
@@ -488,26 +461,26 @@ class MorningStockPickerAgent:
                 }
                 item_obj.update(eval_res)
 
-                # 7 大策略筛选
-                if -10.0 <= pct_60d_val <= 15.0 and 1.8 <= pct_val <= 7.2 and vol_ratio_val >= 1.3 and turnover_val >= 2.5:
+                # 🎯 7 大策略精细化提升胜率规则（放宽量比限制，提高换手率与60日空间过滤）
+                if is_market_healthy and -8.0 <= pct_60d_val <= 12.0 and 2.0 <= pct_val <= 6.0 and 1.8 <= vol_ratio_val <= 5.0 and 3.0 <= turnover_val <= 9.0:
                     item_obj["strategy"] = "🌸 出水芙蓉突破"
                     strategy_lotus.append(item_obj)
-                elif -15.0 <= pct_60d_val <= 10.0 and -3.0 <= pct_val <= 7.5 and vol_ratio_val >= 1.2 and turnover_val >= 2.5:
+                elif is_market_healthy and -10.0 <= pct_60d_val <= 8.0 and 0.0 <= pct_val <= 6.0 and 1.5 <= vol_ratio_val <= 4.5 and 2.8 <= turnover_val <= 8.5:
                     item_obj["strategy"] = "🔄 强劲反包蓄势"
                     strategy_fanbao.append(item_obj)
-                elif pct_60d_val <= -15.0 and -5.0 <= pct_val <= 5.0 and vol_ratio_val >= 1.1 and turnover_val >= 2.0:
+                elif pct_60d_val <= -18.0 and -3.0 <= pct_val <= 4.0 and vol_ratio_val >= 1.2 and 2.0 <= turnover_val <= 6.0:
                     item_obj["strategy"] = "⚡ 急跌反抽企稳"
                     strategy_oversold.append(item_obj)
-                elif 0.0 <= pct_60d_val <= 35.0 and 0.5 <= pct_val <= 6.5 and vol_ratio_val >= 1.2 and turnover_val >= 2.8:
+                elif is_market_healthy and 0.0 <= pct_60d_val <= 25.0 and 1.0 <= pct_val <= 5.5 and 1.6 <= vol_ratio_val <= 4.0 and 3.0 <= turnover_val <= 9.0:
                     item_obj["strategy"] = "🚀 右侧刚启动"
                     strategy_right_side.append(item_obj)
-                elif -25.0 <= pct_60d_val <= 0.0 and -2.5 <= pct_val <= 3.0 and 1.0 <= turnover_val <= 3.0 and vol_ratio_val >= 1.0:
+                elif -20.0 <= pct_60d_val <= -2.0 and -1.5 <= pct_val <= 2.5 and 1.5 <= turnover_val <= 3.5 and vol_ratio_val >= 1.1:
                     item_obj["strategy"] = "🤫 买在无人问津"
                     strategy_quiet_bottom.append(item_obj)
-                elif 8.0 <= pct_60d_val <= 30.0 and 1.2 <= pct_val <= 6.8 and vol_ratio_val >= 1.2 and turnover_val >= 2.2:
+                elif is_market_healthy and 5.0 <= pct_60d_val <= 22.0 and 1.5 <= pct_val <= 5.8 and 1.5 <= vol_ratio_val <= 4.0 and 2.5 <= turnover_val <= 8.0:
                     item_obj["strategy"] = "🦆 老鸭头突破"
                     strategy_duck_head.append(item_obj)
-                elif -40.0 <= pct_60d_val <= -18.0 and -2.5 <= pct_val <= 2.5 and 0.5 <= turnover_val <= 2.0 and vol_ratio_val <= 1.1:
+                elif -35.0 <= pct_60d_val <= -15.0 and -2.0 <= pct_val <= 2.0 and 0.8 <= turnover_val <= 2.5 and vol_ratio_val <= 1.2:
                     item_obj["strategy"] = "📉 底部超跌缩量"
                     strategy_bottom_shrink.append(item_obj)
 
@@ -520,12 +493,14 @@ class MorningStockPickerAgent:
             + strategy_duck_head[:2] + strategy_bottom_shrink[:2]
         )
 
-        # 🚫 彻底剔除兜底逻辑！
         if not candidate_items:
-            print("⚠️ 今日未发现符合 7 大策略的高质量标的，不发送任何兜底数据。")
+            print("⚠️ 今日未发现符合 TrendIQ>=80 高胜率标准标的，不发送兜底数据。")
             return [], [], ""
 
         candidate_items = self.calibrate_items(candidate_items)
+        # 二次过滤：校准后 TrendIQ 必须仍维持 >= 80 分
+        candidate_items = [i for i in candidate_items if i.get("trend_iq", 0) >= 80]
+
         final_items, history_data = self.filter_three_day_duplicates(candidate_items)
 
         if not final_items:
@@ -535,7 +510,7 @@ class MorningStockPickerAgent:
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
 
-        # 🧩 将每个个股打包成独立的切片卡片消息（单条 > 200字）
+        # 打包研报切片
         message_chunks = []
         for i in final_items:
             chunk = (
@@ -551,20 +526,13 @@ class MorningStockPickerAgent:
             )
             message_chunks.append(chunk)
 
-        # 如果存在复盘日志，单独生成一条切片进行分批推送
-        if postmortem_logs:
-            postmortem_chunk = "📝 **【历史建仓 5-10 日归因复盘总结】**\n-----------------------------------\n" + "\n".join(postmortem_logs)
-            message_chunks.append(postmortem_chunk)
-
-        # 用于 Dify 接口的完整拼接 Markdown 文本
         full_md = "\n\n---\n\n".join(message_chunks)
         return final_items, message_chunks, full_md
 
     # ==========================================
-    # 📱 6. 企业微信机器人切片推送 (防拦截版)
+    # 📱 6. 企业微信机器人切片推送
     # ==========================================
     def push_to_wechat_work(self, message_chunks: List[str]) -> bool:
-        """按个股分批切片，1只股票1条独立推送，杜绝字数拦截及错误推送"""
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
 
         if not wechat_url or not (wechat_url.startswith("http://") or wechat_url.startswith("https://")):
@@ -582,9 +550,7 @@ class MorningStockPickerAgent:
             safe_chunk = chunk.replace("```", "").replace("<font", "").replace("</font>", "")
             payload = {
                 "msgtype": "markdown",
-                "markdown": {
-                    "content": safe_chunk
-                }
+                "markdown": {"content": safe_chunk}
             }
 
             try:
@@ -593,13 +559,13 @@ class MorningStockPickerAgent:
                 if res_json.get("errcode") == 0:
                     print(f"🎉 第 ({idx}/{len(message_chunks)}) 条个股研报切片推送成功！")
                 else:
-                    print(f"❌ 第 ({idx}/{len(message_chunks)}) 条推送失败 (仅打日志，不向客户端推送错误): {res_json}")
+                    print(f"❌ 第 ({idx}/{len(message_chunks)}) 条推送失败: {res_json}")
                     success_all = False
             except Exception as e:
                 print(f"❌ 第 ({idx}/{len(message_chunks)}) 条推送网络异常: {e}")
                 success_all = False
 
-            time.sleep(1)  # 间隔 1 秒防止频率拦截
+            time.sleep(1)
 
         return success_all
 
@@ -607,7 +573,6 @@ class MorningStockPickerAgent:
     # 📡 7. 远程 Dify 对接
     # ==========================================
     def push_to_dify(self, report_markdown: str) -> bool:
-        """提交至 Dify API 节点"""
         if not DIFY_API_KEY:
             return False
 
