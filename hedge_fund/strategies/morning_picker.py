@@ -624,11 +624,12 @@ def main():
     else:
         run_count = 0
 
-    if run_count >= 3:
-        print(f"🛑 监测到今日 ({today_str}) 已成功推荐 3 次，触发防重拦截机制，程序停止。")
-        return
+    # 调整拦截逻辑：MANUAL_TEST 为 True 时不限制次数，否则上限调为 5 次
+    max_allowed_runs = 999 if MANUAL_TEST else 5
 
-    print(f"📊 今日已推荐次数: {run_count}/3，准备执行本次选股及推送...")
+    if run_count >= max_allowed_runs:
+        print(f"🛑 监测到今日 ({today_str}) 已成功推荐 {run_count} 次，达到最大限制 ({max_allowed_runs} 次)，程序停止。")
+        return
 
     success_count = 0
     for attempt in range(1, MAX_TOTAL_ATTEMPTS + 1):
