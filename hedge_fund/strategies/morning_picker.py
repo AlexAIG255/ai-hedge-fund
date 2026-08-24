@@ -691,20 +691,24 @@ class MorningStockPickerAgent:
 
         return final_items, report_markdown
 
+   
     # ==========================================
-    # 📱 6. 企业微信机器人直连推送 (分段防拦截版)
+    # 📱 6. 企业微信机器人直连推送 (防拦截与格式容错版)
     # ==========================================
     def push_to_wechat_work(self, report_markdown: str) -> bool:
-        """按段落切分并发送 Markdown 研报至企业微信，防止长文本被拦截"""
+        """按段落切分并发送研报至企业微信（增加 Markdown 字符安全清理，防止企微静默丢包）"""
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
 
-        # 严格校验 URL 合法性，防止 Invalid URL 抛错
+        # 严格校验 URL 合法性
         if not wechat_url or not (wechat_url.startswith("http://") or wechat_url.startswith("https://")):
             print("⚠️ 未配置有效的 WECHAT_WEBHOOK (需以 https:// 开头)，跳过企业微信推送。")
             return False
 
-        MAX_CHUNK_SIZE = 1800
-        paragraphs = report_markdown.split("\n\n")
+        # 🧹 关键修补 1：安全清理 Markdown 格式（企微 Markdown 遇到深层嵌套 ** 或特殊标点易静默丢失）
+        safe_markdown = report_markdown.replace("```", "").replace("<font", "").replace("</font>", "")
+
+        MAX_CHUNK_SIZE = 1500  # 降低分段上限至 1500 字节，防止超限
+        paragraphs = safe_markdown.split("\n\n")
         chunks = []
         current_chunk = ""
 
@@ -720,11 +724,13 @@ class MorningStockPickerAgent:
             chunks.append(current_chunk.strip())
 
         total_chunks = len(chunks)
-        print(f"📡 研报全长 {len(report_markdown)} 字，已自动切分为 {total_chunks} 段推送到企业微信...")
+        print(f"📡 研报全长 {len(safe_markdown)} 字，已自动切分为 {total_chunks} 段推送到企业微信...")
 
         success_all = True
         for idx, chunk in enumerate(chunks, 1):
             page_prefix = f"📄 **【选股研报 ({idx}/{total_chunks})】**\n\n" if total_chunks > 1 else ""
+            
+            # 构建标准的群机器人 Payload
             payload = {
                 "msgtype": "markdown",
                 "markdown": {
@@ -733,13 +739,26 @@ class MorningStockPickerAgent:
             }
 
             try:
-                res = requests.post(wechat_url, json=payload, timeout=10)
+                res = requests.post(wechat_url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
                 res_json = res.json()
                 if res_json.get("errcode") == 0:
                     print(f"🎉 第 ({idx}/{total_chunks}) 段推送成功！")
                 else:
                     print(f"❌ 第 ({idx}/{total_chunks}) 段推送失败: {res_json}")
-                    success_all = False
+                    
+                    # 🧹 关键修补 2：降级兜底方案（如果企微拒绝 Markdown 格式，自动降级为纯文本格式重新发送）
+                    print("⚠️ 尝试降级为 text 文本格式重新补发...")
+                    fallback_payload = {
+                        "msgtype": "text",
+                        "text": {
+                            "content": (page_prefix + chunk).replace("**", "").replace("`", "").replace("#", "")
+                        }
+                    }
+                    res_fb = requests.post(wechat_url, json=fallback_payload, headers={"Content-Type": "application/json"}, timeout=10)
+                    if res_fb.json().get("errcode") == 0:
+                        print(f"✅ 第 ({idx}/{total_chunks}) 段以文本格式补发成功！")
+                    else:
+                        success_all = False
             except Exception as e:
                 print(f"❌ 第 ({idx}/{total_chunks}) 段推送异常: {e}")
                 success_all = False
