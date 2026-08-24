@@ -7,8 +7,8 @@
     "entry_price": 11.34,
     "stop_loss": 10.77,
     "target_price": 12.25,
-    "days_tracked": 9,
-    "status": "TRACKING",
+    "days_tracked": 10,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-21",
@@ -45,7 +45,9 @@
         "close": 11.15,
         "return_pct": -1.68
       }
-    ]
+    ],
+    "close_reason": "观察期满",
+    "close_date": "2026-08-24"
   },
   {
     "code": "600228",
@@ -156,8 +158,8 @@
     "entry_price": 17.56,
     "stop_loss": 16.68,
     "target_price": 18.96,
-    "days_tracked": 9,
-    "status": "TRACKING",
+    "days_tracked": 10,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-21",
@@ -194,7 +196,9 @@
         "close": 17.98,
         "return_pct": 2.39
       }
-    ]
+    ],
+    "close_reason": "观察期满",
+    "close_date": "2026-08-24"
   },
   {
     "code": "600110",
@@ -227,8 +231,8 @@
     "entry_price": 3.92,
     "stop_loss": 3.72,
     "target_price": 4.23,
-    "days_tracked": 9,
-    "status": "TRACKING",
+    "days_tracked": 10,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-21",
@@ -265,7 +269,9 @@
         "close": 4.04,
         "return_pct": 3.06
       }
-    ]
+    ],
+    "close_reason": "观察期满",
+    "close_date": "2026-08-24"
   },
   {
     "code": "001277",
@@ -298,7 +304,7 @@
     "entry_price": 5.23,
     "stop_loss": 4.97,
     "target_price": 5.65,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -341,7 +347,7 @@
     "entry_price": 4.9,
     "stop_loss": 4.66,
     "target_price": 5.29,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -417,7 +423,7 @@
     "entry_price": 5.84,
     "stop_loss": 5.55,
     "target_price": 6.31,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -460,7 +466,7 @@
     "entry_price": 2.51,
     "stop_loss": 2.38,
     "target_price": 2.71,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -503,7 +509,7 @@
     "entry_price": 47.62,
     "stop_loss": 45.24,
     "target_price": 51.43,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -546,7 +552,7 @@
     "entry_price": 41.06,
     "stop_loss": 39.01,
     "target_price": 44.34,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -589,7 +595,7 @@
     "entry_price": 3.95,
     "stop_loss": 3.75,
     "target_price": 4.27,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -627,7 +633,7 @@
     "entry_price": 6.23,
     "stop_loss": 5.92,
     "target_price": 6.73,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -665,7 +671,7 @@
     "entry_price": 8.21,
     "stop_loss": 7.8,
     "target_price": 8.87,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -703,7 +709,7 @@
     "entry_price": 13.9,
     "stop_loss": 13.21,
     "target_price": 15.01,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -741,7 +747,7 @@
     "entry_price": 45.45,
     "stop_loss": 43.18,
     "target_price": 49.09,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -779,7 +785,7 @@
     "entry_price": 5.19,
     "stop_loss": 4.93,
     "target_price": 5.61,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -817,7 +823,7 @@
     "entry_price": 11.15,
     "stop_loss": 10.59,
     "target_price": 12.04,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -893,7 +899,7 @@
     "entry_price": 11.5,
     "stop_loss": 10.92,
     "target_price": 12.42,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [
       {
@@ -931,7 +937,7 @@
     "entry_price": 9.03,
     "stop_loss": 8.58,
     "target_price": 9.75,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [
       {
@@ -964,7 +970,7 @@
     "entry_price": 5.29,
     "stop_loss": 5.03,
     "target_price": 5.71,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [
       {
@@ -997,7 +1003,7 @@
     "entry_price": 10.09,
     "stop_loss": 9.59,
     "target_price": 10.9,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [
       {
@@ -1030,7 +1036,7 @@
     "entry_price": 7.36,
     "stop_loss": 6.99,
     "target_price": 7.95,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [
       {
@@ -1063,7 +1069,7 @@
     "entry_price": 3.71,
     "stop_loss": 3.52,
     "target_price": 4.01,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [
       {
@@ -1096,7 +1102,7 @@
     "entry_price": 5.28,
     "stop_loss": 5.02,
     "target_price": 5.7,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [
       {
@@ -1129,7 +1135,7 @@
     "entry_price": 10.95,
     "stop_loss": 10.4,
     "target_price": 11.83,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1152,7 +1158,7 @@
     "entry_price": 17.34,
     "stop_loss": 16.47,
     "target_price": 18.73,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1175,7 +1181,7 @@
     "entry_price": 8.16,
     "stop_loss": 7.75,
     "target_price": 8.81,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1198,7 +1204,7 @@
     "entry_price": 4.72,
     "stop_loss": 4.48,
     "target_price": 5.1,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1221,7 +1227,7 @@
     "entry_price": 4.09,
     "stop_loss": 3.89,
     "target_price": 4.42,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1244,7 +1250,7 @@
     "entry_price": 11.27,
     "stop_loss": 10.71,
     "target_price": 12.17,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1267,7 +1273,7 @@
     "entry_price": 13.11,
     "stop_loss": 12.45,
     "target_price": 14.16,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1290,7 +1296,7 @@
     "entry_price": 9.04,
     "stop_loss": 8.59,
     "target_price": 9.76,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [
       {
@@ -1313,7 +1319,7 @@
     "entry_price": 38.71,
     "stop_loss": 36.77,
     "target_price": 41.81,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -1331,7 +1337,7 @@
     "entry_price": 3.23,
     "stop_loss": 3.07,
     "target_price": 3.49,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -1349,7 +1355,7 @@
     "entry_price": 22.77,
     "stop_loss": 21.63,
     "target_price": 24.59,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -1367,7 +1373,7 @@
     "entry_price": 10.38,
     "stop_loss": 9.86,
     "target_price": 11.21,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -1385,7 +1391,7 @@
     "entry_price": 29.71,
     "stop_loss": 28.22,
     "target_price": 32.09,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -1403,7 +1409,7 @@
     "entry_price": 23.39,
     "stop_loss": 22.22,
     "target_price": 25.26,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -1421,7 +1427,7 @@
     "entry_price": 54.96,
     "stop_loss": 52.21,
     "target_price": 59.36,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [
       {
@@ -1439,7 +1445,7 @@
     "entry_price": 7.92,
     "stop_loss": 7.52,
     "target_price": 8.55,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": []
   },
@@ -1451,7 +1457,7 @@
     "entry_price": 36.98,
     "stop_loss": 35.13,
     "target_price": 39.94,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": []
   },
@@ -1463,7 +1469,7 @@
     "entry_price": 5.9,
     "stop_loss": 5.61,
     "target_price": 6.37,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": []
   },
@@ -1475,7 +1481,7 @@
     "entry_price": 15.06,
     "stop_loss": 14.31,
     "target_price": 16.26,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": []
   },
@@ -1487,7 +1493,7 @@
     "entry_price": 8.12,
     "stop_loss": 7.71,
     "target_price": 8.77,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": []
   },
@@ -1499,7 +1505,7 @@
     "entry_price": 27.26,
     "stop_loss": 25.9,
     "target_price": 29.44,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": []
   },
@@ -1511,7 +1517,7 @@
     "entry_price": 23.29,
     "stop_loss": 22.13,
     "target_price": 25.15,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": []
   },
@@ -1523,7 +1529,7 @@
     "entry_price": 5.0,
     "stop_loss": 4.75,
     "target_price": 5.4,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": []
   },
@@ -1535,7 +1541,7 @@
     "entry_price": 5.5,
     "stop_loss": 5.22,
     "target_price": 5.94,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": []
   }
