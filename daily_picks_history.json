@@ -471,5 +471,130 @@
         "pct_at_pick": "+5.59%"
       }
     ]
+  },
+  "2026-08-25": {
+    "run_count": 2,
+    "records": [
+      {
+        "code": "600121",
+        "name": "郑州煤电",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 4.19,
+        "stop_loss": 3.98,
+        "target_price": 4.53,
+        "entry_range": "4.13~4.21元",
+        "trend_iq": 95,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.46%"
+      },
+      {
+        "code": "600363",
+        "name": "联创光电",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 17.47,
+        "stop_loss": 16.6,
+        "target_price": 18.87,
+        "entry_range": "17.21~17.56元",
+        "trend_iq": 89,
+        "risk_stars": 1,
+        "pct_at_pick": "+2.52%"
+      },
+      {
+        "code": "600108",
+        "name": "亚盛集团",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 3.32,
+        "stop_loss": 3.15,
+        "target_price": 3.59,
+        "entry_range": "3.27~3.34元",
+        "trend_iq": 87,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.53%"
+      },
+      {
+        "code": "600359",
+        "name": "新农开发",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 6.65,
+        "stop_loss": 6.32,
+        "target_price": 7.18,
+        "entry_range": "6.55~6.68元",
+        "trend_iq": 87,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.53%"
+      },
+      {
+        "code": "600487",
+        "name": "亨通光电",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 63.7,
+        "stop_loss": 60.52,
+        "target_price": 68.8,
+        "entry_range": "62.74~64.02元",
+        "trend_iq": 92,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.41%"
+      },
+      {
+        "code": "600693",
+        "name": "东百集团",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 8.97,
+        "stop_loss": 8.52,
+        "target_price": 9.69,
+        "entry_range": "8.84~9.01元",
+        "trend_iq": 96,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.41%"
+      },
+      {
+        "code": "600152",
+        "name": "维科技术",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 8.0,
+        "stop_loss": 7.6,
+        "target_price": 8.64,
+        "entry_range": "7.88~8.04元",
+        "trend_iq": 82,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.48%"
+      },
+      {
+        "code": "600267",
+        "name": "海正药业",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 11.96,
+        "stop_loss": 11.36,
+        "target_price": 12.92,
+        "entry_range": "11.78~12.02元",
+        "trend_iq": 80,
+        "risk_stars": 1,
+        "pct_at_pick": "-0.83%"
+      },
+      {
+        "code": "600222",
+        "name": "太龙药业",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 7.9,
+        "stop_loss": 7.5,
+        "target_price": 8.53,
+        "entry_range": "7.78~7.94元",
+        "trend_iq": 91,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.64%"
+      },
+      {
+        "code": "600228",
+        "name": "返利科技",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 8.4,
+        "stop_loss": 7.98,
+        "target_price": 9.07,
+        "entry_range": "8.27~8.44元",
+        "trend_iq": 86,
+        "risk_stars": 1,
+        "pct_at_pick": "+2.44%"
+      }
+    ]
   }
 }
