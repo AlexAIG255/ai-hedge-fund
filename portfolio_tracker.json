@@ -1840,5 +1840,65 @@
     "days_tracked": 0,
     "status": "TRACKING",
     "history": []
+  },
+  {
+    "code": "600172",
+    "name": "黄河旋风",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-08-26",
+    "entry_price": 14.06,
+    "stop_loss": 13.36,
+    "target_price": 15.18,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600199",
+    "name": "金种子酒",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-08-26",
+    "entry_price": 7.16,
+    "stop_loss": 6.8,
+    "target_price": 7.73,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600711",
+    "name": "盛屯矿业",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-08-26",
+    "entry_price": 12.12,
+    "stop_loss": 11.51,
+    "target_price": 13.09,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600191",
+    "name": "华资实业",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-26",
+    "entry_price": 11.52,
+    "stop_loss": 10.94,
+    "target_price": 12.44,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600490",
+    "name": "鹏欣资源",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-26",
+    "entry_price": 7.64,
+    "stop_loss": 7.26,
+    "target_price": 8.25,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
