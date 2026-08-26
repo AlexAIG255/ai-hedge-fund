@@ -3,9 +3,8 @@ name: 🧪 Agent 1 (早盘选股 & 企微直推 & 跟踪复盘)
 on:
   workflow_dispatch: # 支持网页端手动点击运行
   schedule:
-    # 北京时间 09:35 (UTC 时间 01:35) 周一至周五触发
-    - cron: '35 1 * * 1-5'
-
+    # 北京时间 09:45 (UTC 时间 01:45) 周一至周五触发
+    - cron: '45 1 * * 1-5'
 
 # 🔒 开启仓库写权限，允许回写历史选股、跟踪池及复盘文件
 permissions:
@@ -18,7 +17,7 @@ concurrency:
 jobs:
   run-picker:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # 预留多次重试的总时间
+    timeout-minutes: 15
 
     steps:
       - name: 1. 拉取代码
@@ -34,29 +33,13 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: 4. 执行选股与推送 (支持失败自动重试3次)
+      - name: 4. 执行选股与推送
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
           DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
           MANUAL_TEST: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: |
-          n=0
-          max_retries=3
-          until [ $n -ge $max_retries ]
-          do
-             echo "🚀 开始执行选股程序 (第 $((n+1)) 次尝试)..."
-             python hedge_fund/strategies/morning_picker.py && break
-             n=$((n+1))
-             if [ $n -lt $max_retries ]; then
-                echo "⚠️ 本次执行失败，等待 30 秒后进行第 $n 次重试..."
-                sleep 30
-             fi
-          done
-
-          if [ $n -eq $max_retries ]; then
-             echo "❌ 连续重试 $max_retries 次均失败，任务终止！"
-             exit 1
-          fi
+          python hedge_fund/strategies/morning_picker.py
 
       - name: 5. 自动提交并保存选股历史与复盘数据
         if: success() # 仅在选股推送成功后才提交数据
@@ -64,13 +47,8 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
           git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
-          git commit -m "Auto-Update: 保存选股历史与建仓跟踪数据 [skip ci]" || exit 0
-          git push
-
-      - name: Commit and push tracking and history files
-        run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
-          git commit -m "auto: update daily stock picks and portfolio history" || exit 0
-          git push
+          git diff --quiet && git diff --staged --quiet || (
+            git commit -m "Auto-Update: 保存选股历史与建仓跟踪数据 [skip ci]"
+            git pull --rebase origin main
+            git push origin main
+          )
