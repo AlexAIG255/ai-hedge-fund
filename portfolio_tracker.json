@@ -1768,5 +1768,77 @@
     "days_tracked": 1,
     "status": "TRACKING",
     "history": []
+  },
+  {
+    "code": "600165",
+    "name": "宁科生物",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-08-26",
+    "entry_price": 3.41,
+    "stop_loss": 3.24,
+    "target_price": 3.68,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600892",
+    "name": "大晟文化",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-08-26",
+    "entry_price": 4.11,
+    "stop_loss": 3.9,
+    "target_price": 4.44,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600356",
+    "name": "恒丰纸业",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-26",
+    "entry_price": 8.9,
+    "stop_loss": 8.46,
+    "target_price": 9.61,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600488",
+    "name": "津药药业",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-26",
+    "entry_price": 5.39,
+    "stop_loss": 5.12,
+    "target_price": 5.82,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600338",
+    "name": "西藏珠峰",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-26",
+    "entry_price": 14.1,
+    "stop_loss": 13.39,
+    "target_price": 15.23,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600497",
+    "name": "驰宏锌锗",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-26",
+    "entry_price": 10.46,
+    "stop_loss": 9.94,
+    "target_price": 11.3,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]

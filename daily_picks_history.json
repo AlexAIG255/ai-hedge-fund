@@ -584,5 +584,130 @@
         "pct_at_pick": "+3.25%"
       }
     ]
+  },
+  "2026-08-26": {
+    "run_count": 1,
+    "records": [
+      {
+        "code": "600162",
+        "name": "香江控股",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 4.45,
+        "stop_loss": 4.23,
+        "target_price": 4.81,
+        "entry_range": "4.38~4.47元",
+        "trend_iq": 89,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.01%"
+      },
+      {
+        "code": "600165",
+        "name": "宁科生物",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 3.41,
+        "stop_loss": 3.24,
+        "target_price": 3.68,
+        "entry_range": "3.36~3.43元",
+        "trend_iq": 96,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.28%"
+      },
+      {
+        "code": "600105",
+        "name": "永鼎股份",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 39.14,
+        "stop_loss": 37.18,
+        "target_price": 42.27,
+        "entry_range": "38.55~39.34元",
+        "trend_iq": 87,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.72%"
+      },
+      {
+        "code": "600108",
+        "name": "亚盛集团",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 3.41,
+        "stop_loss": 3.24,
+        "target_price": 3.68,
+        "entry_range": "3.36~3.43元",
+        "trend_iq": 85,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.19%"
+      },
+      {
+        "code": "600531",
+        "name": "豫光金铅",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 14.09,
+        "stop_loss": 13.39,
+        "target_price": 15.22,
+        "entry_range": "13.88~14.16元",
+        "trend_iq": 91,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.91%"
+      },
+      {
+        "code": "600892",
+        "name": "大晟文化",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 4.11,
+        "stop_loss": 3.9,
+        "target_price": 4.44,
+        "entry_range": "4.05~4.13元",
+        "trend_iq": 96,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.38%"
+      },
+      {
+        "code": "600356",
+        "name": "恒丰纸业",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 8.9,
+        "stop_loss": 8.46,
+        "target_price": 9.61,
+        "entry_range": "8.77~8.94元",
+        "trend_iq": 85,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.33%"
+      },
+      {
+        "code": "600488",
+        "name": "津药药业",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 5.39,
+        "stop_loss": 5.12,
+        "target_price": 5.82,
+        "entry_range": "5.31~5.42元",
+        "trend_iq": 80,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.10%"
+      },
+      {
+        "code": "600338",
+        "name": "西藏珠峰",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 14.1,
+        "stop_loss": 13.39,
+        "target_price": 15.23,
+        "entry_range": "13.89~14.17元",
+        "trend_iq": 89,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.45%"
+      },
+      {
+        "code": "600497",
+        "name": "驰宏锌锗",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 10.46,
+        "stop_loss": 9.94,
+        "target_price": 11.3,
+        "entry_range": "10.3~10.51元",
+        "trend_iq": 94,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.34%"
+      }
+    ]
   }
 }
