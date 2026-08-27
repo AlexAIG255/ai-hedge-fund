@@ -2042,5 +2042,77 @@
     "history": [],
     "current_price": 7.51,
     "total_return": -1.7
+  },
+  {
+    "code": "600353",
+    "name": "旭光电子",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-08-27",
+    "entry_price": 34.79,
+    "stop_loss": 33.05,
+    "target_price": 37.57,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600313",
+    "name": "农发种业",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-08-27",
+    "entry_price": 7.17,
+    "stop_loss": 6.81,
+    "target_price": 7.74,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600793",
+    "name": "宜宾纸业",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-27",
+    "entry_price": 14.38,
+    "stop_loss": 13.66,
+    "target_price": 15.53,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "601388",
+    "name": "怡球资源",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-27",
+    "entry_price": 3.6,
+    "stop_loss": 3.42,
+    "target_price": 3.89,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600330",
+    "name": "天通股份",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-27",
+    "entry_price": 27.49,
+    "stop_loss": 26.12,
+    "target_price": 29.69,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600829",
+    "name": "人民同泰",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-27",
+    "entry_price": 10.43,
+    "stop_loss": 9.91,
+    "target_price": 11.26,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
