@@ -1203,8 +1203,8 @@
     "entry_price": 10.95,
     "stop_loss": 10.4,
     "target_price": 11.83,
-    "days_tracked": 9,
-    "status": "TRACKING",
+    "days_tracked": 10,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-24",
@@ -1217,8 +1217,10 @@
         "return_pct": 1.0
       }
     ],
-    "current_price": 11.6,
-    "total_return": 5.94
+    "current_price": 10.94,
+    "total_return": -0.09,
+    "close_reason": "观察期满",
+    "close_date": "2026-08-28"
   },
   {
     "code": "600272",
@@ -1278,8 +1280,8 @@
     "entry_price": 4.72,
     "stop_loss": 4.48,
     "target_price": 5.1,
-    "days_tracked": 9,
-    "status": "TRACKING",
+    "days_tracked": 10,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-24",
@@ -1292,8 +1294,10 @@
         "return_pct": -0.85
       }
     ],
-    "current_price": 4.61,
-    "total_return": -2.33
+    "current_price": 4.51,
+    "total_return": -4.45,
+    "close_reason": "观察期满",
+    "close_date": "2026-08-28"
   },
   {
     "code": "600162",
@@ -1330,8 +1334,8 @@
     "entry_price": 11.27,
     "stop_loss": 10.71,
     "target_price": 12.17,
-    "days_tracked": 9,
-    "status": "TRACKING",
+    "days_tracked": 10,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-24",
@@ -1344,8 +1348,10 @@
         "return_pct": -0.98
       }
     ],
-    "current_price": 11.15,
-    "total_return": -1.06
+    "current_price": 11.31,
+    "total_return": 0.35,
+    "close_reason": "观察期满",
+    "close_date": "2026-08-28"
   },
   {
     "code": "600449",
@@ -1355,8 +1361,8 @@
     "entry_price": 13.11,
     "stop_loss": 12.45,
     "target_price": 14.16,
-    "days_tracked": 9,
-    "status": "TRACKING",
+    "days_tracked": 10,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-24",
@@ -1369,8 +1375,10 @@
         "return_pct": 0.53
       }
     ],
-    "current_price": 12.49,
-    "total_return": -4.73
+    "current_price": 12.75,
+    "total_return": -2.75,
+    "close_reason": "观察期满",
+    "close_date": "2026-08-28"
   },
   {
     "code": "000712",
@@ -1407,7 +1415,7 @@
     "entry_price": 38.71,
     "stop_loss": 36.77,
     "target_price": 41.81,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -1416,8 +1424,8 @@
         "return_pct": -0.52
       }
     ],
-    "current_price": 41.0,
-    "total_return": 5.92
+    "current_price": 39.8,
+    "total_return": 2.82
   },
   {
     "code": "600108",
@@ -1449,7 +1457,7 @@
     "entry_price": 22.77,
     "stop_loss": 21.63,
     "target_price": 24.59,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -1458,8 +1466,8 @@
         "return_pct": 3.47
       }
     ],
-    "current_price": 22.38,
-    "total_return": -1.71
+    "current_price": 22.56,
+    "total_return": -0.92
   },
   {
     "code": "600078",
@@ -1469,8 +1477,8 @@
     "entry_price": 10.38,
     "stop_loss": 9.86,
     "target_price": 11.21,
-    "days_tracked": 8,
-    "status": "TRACKING",
+    "days_tracked": 9,
+    "status": "CLOSED",
     "history": [
       {
         "date": "2026-08-24",
@@ -1478,8 +1486,10 @@
         "return_pct": 0.39
       }
     ],
-    "current_price": 11.1,
-    "total_return": 6.94
+    "current_price": 11.28,
+    "total_return": 8.67,
+    "close_reason": "止盈达标",
+    "close_date": "2026-08-28"
   },
   {
     "code": "600114",
@@ -1489,7 +1499,7 @@
     "entry_price": 29.71,
     "stop_loss": 28.22,
     "target_price": 32.09,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -1498,8 +1508,8 @@
         "return_pct": -0.2
       }
     ],
-    "current_price": 31.24,
-    "total_return": 5.15
+    "current_price": 30.42,
+    "total_return": 2.39
   },
   {
     "code": "601958",
@@ -1529,7 +1539,7 @@
     "entry_price": 54.96,
     "stop_loss": 52.21,
     "target_price": 59.36,
-    "days_tracked": 8,
+    "days_tracked": 9,
     "status": "TRACKING",
     "history": [
       {
@@ -1538,8 +1548,8 @@
         "return_pct": 0.58
       }
     ],
-    "current_price": 53.9,
-    "total_return": -1.93
+    "current_price": 54.98,
+    "total_return": 0.04
   },
   {
     "code": "600198",
@@ -1549,11 +1559,11 @@
     "entry_price": 7.92,
     "stop_loss": 7.52,
     "target_price": 8.55,
-    "days_tracked": 7,
+    "days_tracked": 8,
     "status": "TRACKING",
     "history": [],
-    "current_price": 7.93,
-    "total_return": 0.13
+    "current_price": 7.77,
+    "total_return": -1.89
   },
   {
     "code": "600367",
@@ -1579,11 +1589,11 @@
     "entry_price": 5.9,
     "stop_loss": 5.61,
     "target_price": 6.37,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [],
-    "current_price": 6.16,
-    "total_return": 4.41
+    "current_price": 6.22,
+    "total_return": 5.42
   },
   {
     "code": "600262",
@@ -1593,11 +1603,11 @@
     "entry_price": 15.06,
     "stop_loss": 14.31,
     "target_price": 16.26,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [],
-    "current_price": 15.42,
-    "total_return": 2.39
+    "current_price": 15.38,
+    "total_return": 2.12
   },
   {
     "code": "600152",
@@ -1607,11 +1617,11 @@
     "entry_price": 8.12,
     "stop_loss": 7.71,
     "target_price": 8.77,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [],
-    "current_price": 8.28,
-    "total_return": 1.97
+    "current_price": 8.36,
+    "total_return": 2.96
   },
   {
     "code": "600489",
@@ -1621,11 +1631,11 @@
     "entry_price": 27.26,
     "stop_loss": 25.9,
     "target_price": 29.44,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [],
-    "current_price": 26.69,
-    "total_return": -2.09
+    "current_price": 26.68,
+    "total_return": -2.13
   },
   {
     "code": "601020",
@@ -1649,11 +1659,11 @@
     "entry_price": 5.0,
     "stop_loss": 4.75,
     "target_price": 5.4,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [],
-    "current_price": 4.91,
-    "total_return": -1.8
+    "current_price": 4.9,
+    "total_return": -2.0
   },
   {
     "code": "600778",
@@ -1663,11 +1673,11 @@
     "entry_price": 5.5,
     "stop_loss": 5.22,
     "target_price": 5.94,
-    "days_tracked": 6,
+    "days_tracked": 7,
     "status": "TRACKING",
     "history": [],
-    "current_price": 5.56,
-    "total_return": 1.09
+    "current_price": 5.65,
+    "total_return": 2.73
   },
   {
     "code": "600121",
@@ -1677,11 +1687,11 @@
     "entry_price": 4.23,
     "stop_loss": 4.02,
     "target_price": 4.57,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 4.27,
-    "total_return": 0.95
+    "current_price": 4.46,
+    "total_return": 5.44
   },
   {
     "code": "600186",
@@ -1691,11 +1701,11 @@
     "entry_price": 11.45,
     "stop_loss": 10.88,
     "target_price": 12.37,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 11.69,
-    "total_return": 2.1
+    "current_price": 11.94,
+    "total_return": 4.28
   },
   {
     "code": "600396",
@@ -1705,11 +1715,11 @@
     "entry_price": 14.43,
     "stop_loss": 13.71,
     "target_price": 15.58,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 14.71,
-    "total_return": 1.94
+    "current_price": 14.17,
+    "total_return": -1.8
   },
   {
     "code": "000560",
@@ -1719,11 +1729,13 @@
     "entry_price": 2.24,
     "stop_loss": 2.13,
     "target_price": 2.42,
-    "days_tracked": 4,
-    "status": "TRACKING",
+    "days_tracked": 5,
+    "status": "CLOSED",
     "history": [],
-    "current_price": 2.4,
-    "total_return": 7.14
+    "current_price": 2.64,
+    "total_return": 17.86,
+    "close_reason": "止盈达标",
+    "close_date": "2026-08-28"
   },
   {
     "code": "000815",
@@ -1733,11 +1745,11 @@
     "entry_price": 16.93,
     "stop_loss": 16.08,
     "target_price": 18.28,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 16.63,
-    "total_return": -1.77
+    "current_price": 16.32,
+    "total_return": -3.6
   },
   {
     "code": "600552",
@@ -1747,11 +1759,11 @@
     "entry_price": 17.33,
     "stop_loss": 16.46,
     "target_price": 18.72,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 18.09,
-    "total_return": 4.39
+    "current_price": 17.88,
+    "total_return": 3.17
   },
   {
     "code": "600598",
@@ -1761,11 +1773,11 @@
     "entry_price": 13.23,
     "stop_loss": 12.57,
     "target_price": 14.29,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 13.56,
-    "total_return": 2.49
+    "current_price": 13.42,
+    "total_return": 1.44
   },
   {
     "code": "600683",
@@ -1791,11 +1803,11 @@
     "entry_price": 17.47,
     "stop_loss": 16.6,
     "target_price": 18.87,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 18.21,
-    "total_return": 4.24
+    "current_price": 18.19,
+    "total_return": 4.12
   },
   {
     "code": "600359",
@@ -1837,11 +1849,11 @@
     "entry_price": 8.97,
     "stop_loss": 8.52,
     "target_price": 9.69,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 9.35,
-    "total_return": 4.24
+    "current_price": 9.56,
+    "total_return": 6.58
   },
   {
     "code": "600267",
@@ -1851,11 +1863,11 @@
     "entry_price": 11.96,
     "stop_loss": 11.36,
     "target_price": 12.92,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 12.37,
-    "total_return": 3.43
+    "current_price": 12.2,
+    "total_return": 2.01
   },
   {
     "code": "600222",
@@ -1865,11 +1877,11 @@
     "entry_price": 7.9,
     "stop_loss": 7.5,
     "target_price": 8.53,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 8.17,
-    "total_return": 3.42
+    "current_price": 7.91,
+    "total_return": 0.13
   },
   {
     "code": "000025",
@@ -1879,11 +1891,11 @@
     "entry_price": 16.03,
     "stop_loss": 15.23,
     "target_price": 17.31,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 16.66,
-    "total_return": 3.93
+    "current_price": 17.06,
+    "total_return": 6.43
   },
   {
     "code": "600096",
@@ -1893,11 +1905,11 @@
     "entry_price": 29.64,
     "stop_loss": 28.16,
     "target_price": 32.01,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 30.95,
-    "total_return": 4.42
+    "current_price": 31.58,
+    "total_return": 6.55
   },
   {
     "code": "600203",
@@ -1907,11 +1919,11 @@
     "entry_price": 10.18,
     "stop_loss": 9.67,
     "target_price": 10.99,
-    "days_tracked": 4,
+    "days_tracked": 5,
     "status": "TRACKING",
     "history": [],
-    "current_price": 10.66,
-    "total_return": 4.72
+    "current_price": 10.71,
+    "total_return": 5.21
   },
   {
     "code": "600165",
@@ -1937,11 +1949,11 @@
     "entry_price": 4.11,
     "stop_loss": 3.9,
     "target_price": 4.44,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 3.99,
-    "total_return": -2.92
+    "current_price": 4.02,
+    "total_return": -2.19
   },
   {
     "code": "600356",
@@ -1951,11 +1963,11 @@
     "entry_price": 8.9,
     "stop_loss": 8.46,
     "target_price": 9.61,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 8.81,
-    "total_return": -1.01
+    "current_price": 8.79,
+    "total_return": -1.24
   },
   {
     "code": "600488",
@@ -1965,11 +1977,11 @@
     "entry_price": 5.39,
     "stop_loss": 5.12,
     "target_price": 5.82,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 5.7,
-    "total_return": 5.75
+    "current_price": 5.6,
+    "total_return": 3.9
   },
   {
     "code": "600338",
@@ -1979,11 +1991,11 @@
     "entry_price": 14.1,
     "stop_loss": 13.39,
     "target_price": 15.23,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 13.94,
-    "total_return": -1.13
+    "current_price": 14.38,
+    "total_return": 1.99
   },
   {
     "code": "600497",
@@ -1993,11 +2005,11 @@
     "entry_price": 10.46,
     "stop_loss": 9.94,
     "target_price": 11.3,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 10.53,
-    "total_return": 0.67
+    "current_price": 10.57,
+    "total_return": 1.05
   },
   {
     "code": "600172",
@@ -2007,11 +2019,11 @@
     "entry_price": 14.06,
     "stop_loss": 13.36,
     "target_price": 15.18,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 14.61,
-    "total_return": 3.91
+    "current_price": 14.42,
+    "total_return": 2.56
   },
   {
     "code": "600199",
@@ -2021,11 +2033,11 @@
     "entry_price": 7.16,
     "stop_loss": 6.8,
     "target_price": 7.73,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 7.04,
-    "total_return": -1.68
+    "current_price": 7.24,
+    "total_return": 1.12
   },
   {
     "code": "600711",
@@ -2035,11 +2047,11 @@
     "entry_price": 12.12,
     "stop_loss": 11.51,
     "target_price": 13.09,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 11.95,
-    "total_return": -1.4
+    "current_price": 12.0,
+    "total_return": -0.99
   },
   {
     "code": "600191",
@@ -2049,11 +2061,11 @@
     "entry_price": 11.52,
     "stop_loss": 10.94,
     "target_price": 12.44,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 11.2,
-    "total_return": -2.78
+    "current_price": 11.07,
+    "total_return": -3.91
   },
   {
     "code": "600490",
@@ -2063,11 +2075,11 @@
     "entry_price": 7.64,
     "stop_loss": 7.26,
     "target_price": 8.25,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "history": [],
-    "current_price": 7.71,
-    "total_return": 0.92
+    "current_price": 8.15,
+    "total_return": 6.68
   },
   {
     "code": "600353",
@@ -2077,11 +2089,11 @@
     "entry_price": 34.79,
     "stop_loss": 33.05,
     "target_price": 37.57,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [],
-    "current_price": 37.24,
-    "total_return": 7.04
+    "current_price": 34.63,
+    "total_return": -0.46
   },
   {
     "code": "600313",
@@ -2091,11 +2103,11 @@
     "entry_price": 7.17,
     "stop_loss": 6.81,
     "target_price": 7.74,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [],
-    "current_price": 7.23,
-    "total_return": 0.84
+    "current_price": 7.5,
+    "total_return": 4.6
   },
   {
     "code": "600793",
@@ -2105,11 +2117,11 @@
     "entry_price": 14.38,
     "stop_loss": 13.66,
     "target_price": 15.53,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [],
-    "current_price": 14.54,
-    "total_return": 1.11
+    "current_price": 14.91,
+    "total_return": 3.69
   },
   {
     "code": "601388",
@@ -2119,7 +2131,7 @@
     "entry_price": 3.6,
     "stop_loss": 3.42,
     "target_price": 3.89,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [],
     "current_price": 3.59,
@@ -2133,11 +2145,11 @@
     "entry_price": 27.49,
     "stop_loss": 26.12,
     "target_price": 29.69,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [],
-    "current_price": 29.15,
-    "total_return": 6.04
+    "current_price": 28.94,
+    "total_return": 5.27
   },
   {
     "code": "600829",
@@ -2147,11 +2159,11 @@
     "entry_price": 10.43,
     "stop_loss": 9.91,
     "target_price": 11.26,
-    "days_tracked": 2,
+    "days_tracked": 3,
     "status": "TRACKING",
     "history": [],
-    "current_price": 10.58,
-    "total_return": 1.44
+    "current_price": 10.31,
+    "total_return": -1.15
   },
   {
     "code": "600318",
@@ -2161,11 +2173,11 @@
     "entry_price": 6.94,
     "stop_loss": 6.59,
     "target_price": 7.5,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 6.94,
-    "total_return": 0.0
+    "current_price": 6.88,
+    "total_return": -0.86
   },
   {
     "code": "601099",
@@ -2175,11 +2187,11 @@
     "entry_price": 3.6,
     "stop_loss": 3.42,
     "target_price": 3.89,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 3.6,
-    "total_return": 0.0
+    "current_price": 3.58,
+    "total_return": -0.56
   },
   {
     "code": "600326",
@@ -2189,11 +2201,11 @@
     "entry_price": 7.72,
     "stop_loss": 7.33,
     "target_price": 8.34,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 7.72,
-    "total_return": 0.0
+    "current_price": 7.75,
+    "total_return": 0.39
   },
   {
     "code": "600362",
@@ -2203,11 +2215,11 @@
     "entry_price": 49.2,
     "stop_loss": 46.74,
     "target_price": 53.14,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 49.2,
-    "total_return": 0.0
+    "current_price": 49.01,
+    "total_return": -0.39
   },
   {
     "code": "600391",
@@ -2217,11 +2229,11 @@
     "entry_price": 33.22,
     "stop_loss": 31.56,
     "target_price": 35.88,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 33.22,
-    "total_return": 0.0
+    "current_price": 34.13,
+    "total_return": 2.74
   },
   {
     "code": "600666",
@@ -2231,11 +2243,11 @@
     "entry_price": 3.62,
     "stop_loss": 3.44,
     "target_price": 3.91,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 3.62,
-    "total_return": 0.0
+    "current_price": 3.57,
+    "total_return": -1.38
   },
   {
     "code": "600125",
@@ -2245,11 +2257,11 @@
     "entry_price": 5.45,
     "stop_loss": 5.18,
     "target_price": 5.89,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 5.45,
-    "total_return": 0.0
+    "current_price": 5.48,
+    "total_return": 0.55
   },
   {
     "code": "600320",
@@ -2259,11 +2271,11 @@
     "entry_price": 4.08,
     "stop_loss": 3.88,
     "target_price": 4.41,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 4.08,
-    "total_return": 0.0
+    "current_price": 4.14,
+    "total_return": 1.47
   },
   {
     "code": "600906",
@@ -2273,11 +2285,11 @@
     "entry_price": 6.71,
     "stop_loss": 6.37,
     "target_price": 7.25,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 6.71,
-    "total_return": 0.0
+    "current_price": 6.7,
+    "total_return": -0.15
   },
   {
     "code": "601375",
@@ -2287,11 +2299,11 @@
     "entry_price": 4.24,
     "stop_loss": 4.03,
     "target_price": 4.58,
-    "days_tracked": 1,
+    "days_tracked": 2,
     "status": "TRACKING",
     "history": [],
-    "current_price": 4.24,
-    "total_return": 0.0
+    "current_price": 4.23,
+    "total_return": -0.24
   },
   {
     "code": "600251",
@@ -2301,9 +2313,11 @@
     "entry_price": 11.19,
     "stop_loss": 10.63,
     "target_price": 12.09,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [],
+    "current_price": 11.77,
+    "total_return": 5.18
   },
   {
     "code": "600176",
@@ -2313,9 +2327,11 @@
     "entry_price": 42.9,
     "stop_loss": 40.75,
     "target_price": 46.33,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [],
+    "current_price": 43.2,
+    "total_return": 0.7
   },
   {
     "code": "600183",
@@ -2325,9 +2341,11 @@
     "entry_price": 147.84,
     "stop_loss": 140.45,
     "target_price": 159.67,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [],
+    "current_price": 145.65,
+    "total_return": -1.48
   },
   {
     "code": "600360",
@@ -2337,9 +2355,11 @@
     "entry_price": 10.48,
     "stop_loss": 9.96,
     "target_price": 11.32,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [],
+    "current_price": 10.4,
+    "total_return": -0.76
   },
   {
     "code": "600366",
@@ -2349,9 +2369,11 @@
     "entry_price": 11.66,
     "stop_loss": 11.08,
     "target_price": 12.59,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [],
+    "current_price": 11.7,
+    "total_return": 0.34
   },
   {
     "code": "600130",
@@ -2361,9 +2383,11 @@
     "entry_price": 4.51,
     "stop_loss": 4.28,
     "target_price": 4.87,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [],
+    "current_price": 4.53,
+    "total_return": 0.44
   },
   {
     "code": "600602",
@@ -2373,8 +2397,10 @@
     "entry_price": 18.78,
     "stop_loss": 17.84,
     "target_price": 20.28,
-    "days_tracked": 0,
+    "days_tracked": 1,
     "status": "TRACKING",
-    "history": []
+    "history": [],
+    "current_price": 18.68,
+    "total_return": -0.53
   }
 ]
