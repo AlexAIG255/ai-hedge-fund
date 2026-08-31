@@ -2536,5 +2536,89 @@
     "history": [],
     "current_price": 3.4,
     "total_return": 0.0
+  },
+  {
+    "code": "600228",
+    "name": "返利科技",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-08-31",
+    "entry_price": 8.61,
+    "stop_loss": 8.18,
+    "target_price": 9.3,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600226",
+    "name": "亨通股份",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-08-31",
+    "entry_price": 6.18,
+    "stop_loss": 5.87,
+    "target_price": 6.67,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600508",
+    "name": "上海能源",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-08-31",
+    "entry_price": 12.2,
+    "stop_loss": 11.59,
+    "target_price": 13.18,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600611",
+    "name": "大众交通",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-08-31",
+    "entry_price": 4.73,
+    "stop_loss": 4.49,
+    "target_price": 5.11,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600288",
+    "name": "大恒科技",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-08-31",
+    "entry_price": 11.17,
+    "stop_loss": 10.61,
+    "target_price": 12.06,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "601929",
+    "name": "吉视传媒",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-31",
+    "entry_price": 2.41,
+    "stop_loss": 2.29,
+    "target_price": 2.6,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "000969",
+    "name": "安泰科技",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-08-31",
+    "entry_price": 17.76,
+    "stop_loss": 16.87,
+    "target_price": 19.18,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]

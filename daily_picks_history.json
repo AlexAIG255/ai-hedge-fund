@@ -959,5 +959,130 @@
         "pct_at_pick": "+4.94%"
       }
     ]
+  },
+  "2026-08-31": {
+    "run_count": 1,
+    "records": [
+      {
+        "code": "600183",
+        "name": "生益科技",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 149.17,
+        "stop_loss": 141.71,
+        "target_price": 161.1,
+        "entry_range": "146.93~149.92元",
+        "trend_iq": 87,
+        "risk_stars": 1,
+        "pct_at_pick": "+2.42%"
+      },
+      {
+        "code": "600228",
+        "name": "返利科技",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 8.61,
+        "stop_loss": 8.18,
+        "target_price": 9.3,
+        "entry_range": "8.48~8.65元",
+        "trend_iq": 90,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.61%"
+      },
+      {
+        "code": "600226",
+        "name": "亨通股份",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 6.18,
+        "stop_loss": 5.87,
+        "target_price": 6.67,
+        "entry_range": "6.09~6.21元",
+        "trend_iq": 86,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.98%"
+      },
+      {
+        "code": "600508",
+        "name": "上海能源",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 12.2,
+        "stop_loss": 11.59,
+        "target_price": 13.18,
+        "entry_range": "12.02~12.26元",
+        "trend_iq": 86,
+        "risk_stars": 1,
+        "pct_at_pick": "+0.66%"
+      },
+      {
+        "code": "600611",
+        "name": "大众交通",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 4.73,
+        "stop_loss": 4.49,
+        "target_price": 5.11,
+        "entry_range": "4.66~4.75元",
+        "trend_iq": 92,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.88%"
+      },
+      {
+        "code": "600892",
+        "name": "大晟文化",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 4.23,
+        "stop_loss": 4.02,
+        "target_price": 4.57,
+        "entry_range": "4.17~4.25元",
+        "trend_iq": 95,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.22%"
+      },
+      {
+        "code": "600095",
+        "name": "湘财股份",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 9.43,
+        "stop_loss": 8.96,
+        "target_price": 10.18,
+        "entry_range": "9.29~9.48元",
+        "trend_iq": 80,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.26%"
+      },
+      {
+        "code": "600288",
+        "name": "大恒科技",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 11.17,
+        "stop_loss": 10.61,
+        "target_price": 12.06,
+        "entry_range": "11.0~11.23元",
+        "trend_iq": 80,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.24%"
+      },
+      {
+        "code": "601929",
+        "name": "吉视传媒",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 2.41,
+        "stop_loss": 2.29,
+        "target_price": 2.6,
+        "entry_range": "2.37~2.42元",
+        "trend_iq": 88,
+        "risk_stars": 2,
+        "pct_at_pick": "+2.99%"
+      },
+      {
+        "code": "000969",
+        "name": "安泰科技",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 17.76,
+        "stop_loss": 16.87,
+        "target_price": 19.18,
+        "entry_range": "17.49~17.85元",
+        "trend_iq": 89,
+        "risk_stars": 1,
+        "pct_at_pick": "+2.60%"
+      }
+    ]
   }
 }
