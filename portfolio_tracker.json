@@ -2784,5 +2784,41 @@
     "history": [],
     "current_price": 15.2,
     "total_return": 0.0
+  },
+  {
+    "code": "600506",
+    "name": "统一股份",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-09-01",
+    "entry_price": 16.75,
+    "stop_loss": 15.91,
+    "target_price": 18.09,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600237",
+    "name": "铜峰电子",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-09-01",
+    "entry_price": 8.54,
+    "stop_loss": 8.11,
+    "target_price": 9.22,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "601136",
+    "name": "首创证券",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-09-01",
+    "entry_price": 15.66,
+    "stop_loss": 14.88,
+    "target_price": 16.91,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
