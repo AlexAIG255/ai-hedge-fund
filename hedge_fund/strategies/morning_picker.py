@@ -1,7 +1,7 @@
 """
 Agent 1: 大盘早晚选股 Agent (Morning Stock Picker Agent) - 精准策略与 TrendIQ 深度切片推送版
 集成了全量 A 股抓取、腾讯实时校准、3日去重熔断、7大选股策略、TrendIQ 80+ 智能深度评分、
-企业微信/Dify 推送、iPad WPS 多维表格云端同步，以及 5-10 日建仓跟踪复盘系统。
+企业微信/Dify 推送、飞书多维表格云端同步，以及 5-10 日建仓跟踪复盘系统。
 """
 
 import json
@@ -16,10 +16,11 @@ import requests
 DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
 DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "").strip()
 
-# ⚙️ WPS 多维表格 API 配置
-WPS_APP_ID = os.environ.get("WPS_APP_ID", "").strip()
-WPS_APP_SECRET = os.environ.get("WPS_APP_SECRET", "").strip()
-WPS_FILE_TOKEN = os.environ.get("WPS_FILE_TOKEN", "").strip()
+# ⚙️ 飞书多维表格 API 配置
+FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "").strip()
+FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "").strip()
+FEISHU_APP_TOKEN = os.environ.get("FEISHU_APP_TOKEN", "").strip()
+FEISHU_TABLE_ID = os.environ.get("FEISHU_TABLE_ID", "").strip()
 
 # ⚙️ 控制与时间参数配置
 MANUAL_TEST = (
@@ -296,13 +297,12 @@ class MorningStockPickerAgent:
             print(f"❌ 请求飞书 Token 网络异常: {e}")
             return
 
-        # 2. 🟢 自动开启 Wiki 知识库/云文档 API 访问权限 (无需手动在 App 添加)
+        # 2. 🟢 自动开启 Wiki 知识库/云文档 API 访问权限
         perm_url = f"https://open.feishu.cn/open-apis/drive/v2/permissions/{FEISHU_APP_TOKEN}/public?type=wiki"
         perm_headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/json; charset=utf-8"
         }
-        # 强制允许可编辑/API 写入
         perm_payload = {"external_access": True, "security_entity": "anyone_can_edit", "comment_entity": "anyone_can_comment"}
         try:
             requests.patch(perm_url, headers=perm_headers, json=perm_payload, timeout=5)
@@ -590,8 +590,8 @@ class MorningStockPickerAgent:
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
 
-        # 写入 WPS 云端表格
-        self.sync_to_wps(final_items)
+        # 🟢 写入飞书云端表格
+        self.sync_to_feishu(final_items)
 
         # 打包研报切片
         message_chunks = []
