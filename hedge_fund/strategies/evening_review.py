@@ -4,6 +4,7 @@ Agent 2: 晚盘收盘复盘与持仓跟踪 Agent (Evening Review Agent)
 - 动态计算持股天数 (T+N)、持仓收益率、盈亏比 (Reward/Risk Ratio)
 - 触发机制：止盈 / 止损 / 10日满期 自动结案
 - 消息切片推送至企业微信，彻底解决长文本限制问题
+- 🆕 自动无缝同步最新复盘数据至 iPad / 云端 WPS 多维表格
 """
 
 import os
@@ -17,6 +18,11 @@ from datetime import datetime
 HISTORY_FILE = "daily_picks_history.json"
 TRACKER_FILE = "portfolio_tracker.json"
 POSTMORTEM_FILE = "skills_postmortem.md"
+
+# ⚙️ WPS 多维表格 API 配置 (环境变量)
+WPS_APP_ID = os.environ.get("WPS_APP_ID", "").strip()
+WPS_APP_SECRET = os.environ.get("WPS_APP_SECRET", "").strip()
+WPS_FILE_TOKEN = os.environ.get("WPS_FILE_TOKEN", "").strip()
 
 
 class EveningReviewAgent:
@@ -82,6 +88,119 @@ class EveningReviewAgent:
             print(f"⚠️ 获取收盘行情失败: {e}")
         return quotes
 
+    # ==========================================
+    # ⚙️ WPS 云端多维表格 API 自动化同步模块
+    # ==========================================
+    def get_wps_access_token(self) -> str:
+        """获取 WPS 开放平台的 AccessToken"""
+        if not (WPS_APP_ID and WPS_APP_SECRET):
+            return ""
+        url = "https://open.kdocs.cn/api/v3/auth/app/token"
+        try:
+            res = requests.post(
+                url, 
+                json={"app_id": WPS_APP_ID, "app_secret": WPS_APP_SECRET}, 
+                timeout=10
+            )
+            data = res.json()
+            if data.get("code") == 0:
+                return data.get("data", {}).get("access_token", "")
+            else:
+                print(f"⚠️ WPS 鉴权失败: {data}")
+        except Exception as e:
+            print(f"❌ WPS Token 获取异常: {e}")
+        return ""
+
+    def sync_to_wps_sheet(self, active_items: list):
+        """将复盘后的真实收益率、持股天数 (T+N)、最新收盘价与结案状态写回 WPS 云端"""
+        token = self.get_wps_access_token()
+        if not token or not WPS_FILE_TOKEN:
+            print("⚠️ 未配置完整 WPS 参数，跳过多维表格云端同步。")
+            return
+
+        headers = {
+            "Content-Type": "application/json",
+            "X-Auth-Token": token
+        }
+        today_str = datetime.now().strftime("%Y-%m-%d")
+
+        # 1. 先读取当前多维表里的已有记录，找到匹配的 record_id
+        list_records_url = f"https://open.kdocs.cn/api/v3/ide/files/{WPS_FILE_TOKEN}/tables/records"
+        existing_records = {}
+        try:
+            res_list = requests.get(list_records_url, headers=headers, timeout=10)
+            if res_list.json().get("code") == 0:
+                recs = res_list.json().get("data", {}).get("records", [])
+                for r in recs:
+                    f = r.get("fields", {})
+                    # 组合“股票代码+推荐日期”作为唯一识别人
+                    key = f"{f.get('股票代码')}_{f.get('推荐日期')}"
+                    existing_records[key] = r.get("record_id")
+        except Exception as e:
+            print(f"⚠️ 查询 WPS 多维表现有记录失败: {e}")
+
+        # 2. 构建推送与更新批量 Payload
+        add_records = []
+        update_records = []
+
+        for item in active_items:
+            code = str(item.get("code", ""))
+            entry_date = str(item.get("entry_date", item.get("pick_date", today_str)))
+            unique_key = f"{code}_{entry_date}"
+
+            entry_p = float(item.get("entry_price", item.get("buy_price", item.get("pick_price", 0))))
+            close_p = float(item.get("current_price", entry_p))
+            total_ret = float(item.get("total_return", 0.0))
+            days_tracked = int(item.get("days_tracked", 1))
+
+            status_str = "持仓中"
+            if item.get("status") == "CLOSED":
+                status_str = f"已结案({item.get('close_reason', '触发离场')})"
+
+            fields_data = {
+                "推荐日期": entry_date,
+                "复盘日期": today_str,
+                "股票代码": code,
+                "股票名称": str(item.get("name", "")),
+                "策略归属": str(item.get("strategy", "深度量化选股")),
+                "建仓价格": entry_p,
+                "最新收盘价": close_p,
+                "持仓收益率": round(total_ret / 100.0, 4),  # 小数形式存入，WPS 格式会自动显示为 %
+                "持股天数": days_tracked,
+                "状态": status_str,
+                "止盈目标价": float(item.get("target_price", 0)),
+                "止损价格": float(item.get("stop_loss", 0))
+            }
+
+            if unique_key in existing_records:
+                # 记录存在，做更新操作
+                update_records.append({
+                    "record_id": existing_records[unique_key],
+                    "fields": fields_data
+                })
+            else:
+                # 记录不存在，做新增插入
+                add_records.append({"fields": fields_data})
+
+        # 3. 发送批量新增或更新请求
+        try:
+            if add_records:
+                res = requests.post(list_records_url, headers=headers, json={"records": add_records}, timeout=10)
+                if res.json().get("code") == 0:
+                    print(f"🎉 成功插入 {len(add_records)} 条新复盘记录至 WPS 多维表格！")
+            
+            if update_records:
+                # WPS 批量更新接口
+                update_url = f"https://open.kdocs.cn/api/v3/ide/files/{WPS_FILE_TOKEN}/tables/records/batch_update"
+                res = requests.post(update_url, headers=headers, json={"records": update_records}, timeout=10)
+                if res.json().get("code") == 0:
+                    print(f"🎉 成功同步更新 {len(update_records)} 条持仓收益/状态至 WPS 多维表格！")
+        except Exception as e:
+            print(f"❌ 同步数据至 WPS 多维表发生异常: {e}")
+
+    # ==========================================
+    # 🔄 核心晚盘复盘逻辑 (保持原有分析逻辑不变)
+    # ==========================================
     def run_evening_review(self) -> tuple[list, list]:
         tracker = self.load_tracker()
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -201,8 +320,11 @@ class EveningReviewAgent:
             alert_chunk = "🚨 **【盘后触发与结案警报】**\n-----------------------------------\n" + "\n".join(review_logs)
             message_chunks.append(alert_chunk)
 
-        # 保存更新数据至 JSON 跟踪池
+        # 1. 保存更新数据至本地 JSON 跟踪池
         self.save_tracker(tracker)
+
+        # 2. 🆕 同步数据至 WPS 云端多维表格
+        self.sync_to_wps_sheet(active_items)
 
         return active_items, message_chunks
 
