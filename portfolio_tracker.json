@@ -3088,5 +3088,17 @@
     "days_tracked": 0,
     "status": "TRACKING",
     "history": []
+  },
+  {
+    "code": "600500",
+    "name": "中化国际",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-09-02",
+    "entry_price": 5.62,
+    "stop_loss": 5.34,
+    "target_price": 6.07,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
