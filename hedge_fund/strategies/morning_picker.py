@@ -269,15 +269,16 @@ class MorningStockPickerAgent:
         self.save_tracker(tracker_data)
 
     # ==========================================
-    # 📊 4. WPS 多维表格 API 自动同步模块 (新增)
+    # 📊 4. WPS 多维表格 API 自动同步模块
     # ==========================================
     def sync_to_wps(self, selected_items: List[Dict]):
         """将早盘选出的优质个股数据自动写入 WPS 云端多维表"""
         if not (WPS_APP_ID and WPS_APP_SECRET and WPS_FILE_TOKEN):
             print("⚠️ 未完全配置 WPS 参数 (WPS_APP_ID, WPS_APP_SECRET, WPS_FILE_TOKEN)，跳过 WPS 多维表写入。")
+            print(f"   [调试日志] 环境变量状态 -> APP_ID: {'✅已配置' if WPS_APP_ID else '❌缺失'}, APP_SECRET: {'✅已配置' if WPS_APP_SECRET else '❌缺失'}, FILE_TOKEN: {'✅已配置' if WPS_FILE_TOKEN else '❌缺失'}")
             return
 
-        # 1. 免费获取 Token
+        # 1. 获取 AccessToken
         auth_url = "https://open.kdocs.cn/api/v3/auth/app/token"
         try:
             res_auth = requests.post(auth_url, json={"app_id": WPS_APP_ID, "app_secret": WPS_APP_SECRET}, timeout=10)
