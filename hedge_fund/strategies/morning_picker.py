@@ -1,7 +1,7 @@
 """
 Agent 1: 大盘早晚选股 Agent (Morning Stock Picker Agent) - 精准策略与 TrendIQ 深度切片推送版
 集成了全量 A 股抓取、腾讯实时校准、3日去重熔断、7大选股策略、TrendIQ 80+ 智能深度评分、
-大盘环境过滤、单标的分批切片推送以及 5-10 日建仓跟踪归因复盘系统。
+企业微信/Dify 推送、iPad WPS 多维表格云端同步，以及 5-10 日建仓跟踪复盘系统。
 """
 
 import json
@@ -15,6 +15,11 @@ import requests
 # 🔒 Dify Chatflow 对话接口配置
 DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
 DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "").strip()
+
+# ⚙️ WPS 多维表格 API 配置
+WPS_APP_ID = os.environ.get("WPS_APP_ID", "").strip()
+WPS_APP_SECRET = os.environ.get("WPS_APP_SECRET", "").strip()
+WPS_FILE_TOKEN = os.environ.get("WPS_FILE_TOKEN", "").strip()
 
 # ⚙️ 控制与时间参数配置
 MANUAL_TEST = (
@@ -157,12 +162,12 @@ class MorningStockPickerAgent:
         self.save_history(history)
 
     # ==========================================
-    # 📐 2. TrendIQ 智能评分 (提高到 80分门槛)
+    # 📐 2. TrendIQ 智能评分
     # ==========================================
     def calculate_trend_iq_and_risk(
         self, price_val: float, pct_val: float, turnover_val: float, pct_60d_val: float, vol_ratio_val: float
     ) -> Dict:
-        """计算 TrendIQ 深度量化指标 (提高硬门槛至 80 分以上)"""
+        """计算 TrendIQ 深度量化指标"""
         risk_stars = 1
         if turnover_val > 15.0 or abs(pct_60d_val) > 35.0:
             risk_stars += 1
@@ -175,7 +180,6 @@ class MorningStockPickerAgent:
 
         risk_stars = min(5, max(1, risk_stars))
 
-        # 🎯 严苛因子拆解：提升基准要求
         base_score = 82
         momentum_score = round(pct_val * 1.5, 1) if pct_val > 0 else round(pct_val * 2.0, 1)
         volume_score = round(min(8, turnover_val * 0.4) + (vol_ratio_val * 2.0), 1)
@@ -209,7 +213,6 @@ class MorningStockPickerAgent:
             "target_price": f"{target_price:.2f}元",
             "raw_stop_loss": stop_loss,
             "raw_target": target_price,
-            # 🎯 提升通过门槛：TrendIQ 必须 >= 80 并且 风险小于 4 星
             "pass_risk": (risk_stars < 4) and (trend_iq >= 80)
         }
 
@@ -266,10 +269,73 @@ class MorningStockPickerAgent:
         self.save_tracker(tracker_data)
 
     # ==========================================
-    # 🌐 4. 行情采集与动态量比校准
+    # 📊 4. WPS 多维表格 API 自动同步模块 (新增)
+    # ==========================================
+    def sync_to_wps(self, selected_items: List[Dict]):
+        """将早盘选出的优质个股数据自动写入 WPS 云端多维表"""
+        if not (WPS_APP_ID and WPS_APP_SECRET and WPS_FILE_TOKEN):
+            print("⚠️ 未完全配置 WPS 参数 (WPS_APP_ID, WPS_APP_SECRET, WPS_FILE_TOKEN)，跳过 WPS 多维表写入。")
+            return
+
+        # 1. 免费获取 Token
+        auth_url = "https://open.kdocs.cn/api/v3/auth/app/token"
+        try:
+            res_auth = requests.post(auth_url, json={"app_id": WPS_APP_ID, "app_secret": WPS_APP_SECRET}, timeout=10)
+            token_json = res_auth.json()
+            if token_json.get("code") != 0:
+                print(f"❌ WPS 鉴权失败: {token_json}")
+                return
+            access_token = token_json.get("data", {}).get("access_token", "")
+        except Exception as e:
+            print(f"❌ 请求 WPS Token 网络异常: {e}")
+            return
+
+        # 2. 拼接多维表格行记录
+        records_url = f"https://open.kdocs.cn/api/v3/ide/files/{WPS_FILE_TOKEN}/tables/records"
+        headers = {
+            "Content-Type": "application/json",
+            "X-Auth-Token": access_token
+        }
+
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        records = []
+
+        for item in selected_items:
+            try:
+                pick_price = float(str(item.get("price", "0")).replace("元", ""))
+            except ValueError:
+                pick_price = 0.0
+
+            records.append({
+                "fields": {
+                    "推荐日期": today_str,
+                    "复盘日期": today_str,
+                    "股票代码": str(item.get("code", "")),
+                    "股票名称": str(item.get("name", "")),
+                    "策略归属": str(item.get("strategy", "默认策略")),
+                    "建仓价格": pick_price,
+                    "最新收盘价": pick_price,
+                    "持仓收益率": 0.0,
+                    "持股天数": 0,
+                    "状态": "持仓中",
+                    "TrendIQ评分": int(item.get("trend_iq", 80))
+                }
+            })
+
+        if records:
+            try:
+                res = requests.post(records_url, headers=headers, json={"records": records}, timeout=10)
+                if res.json().get("code") == 0:
+                    print(f"🎉 成功同步 {len(records)} 条早盘选股数据至 iPad WPS 多维表格！")
+                else:
+                    print(f"❌ 同步至 WPS 失败: {res.json()}")
+            except Exception as e:
+                print(f"❌ 写入 WPS 多维表异常: {e}")
+
+    # ==========================================
+    # 🌐 5. 行情采集与动态校准
     # ==========================================
     def check_market_sentiment(self) -> bool:
-        """检查大盘（上证指数 sh000001）动能，用于过滤高风险追高行为"""
         try:
             res = requests.get("http://qt.gtimg.cn/q=sh000001", timeout=5)
             if res.status_code == 200 and '="' in res.text:
@@ -283,7 +349,6 @@ class MorningStockPickerAgent:
         return True
 
     def fetch_sina_market_data(self, scan_target=2500) -> List[Dict]:
-        """新浪/腾讯实时行情拉取"""
         all_diff = []
         page_size = 100
         total_pages = scan_target // page_size
@@ -364,7 +429,6 @@ class MorningStockPickerAgent:
         return all_diff
 
     def calibrate_items(self, items_list: List[Dict]) -> List[Dict]:
-        """腾讯 HQ 毫秒级价格与【真实量比】校准"""
         if not items_list:
             return items_list
         tc_codes = [f"sh{i['code']}" if i["code"].startswith("60") else f"sz{i['code']}" for i in items_list]
@@ -408,10 +472,9 @@ class MorningStockPickerAgent:
         return items_list
 
     # ==========================================
-    # 📊 5. 核心策略选股筛选引擎 (严苛提高胜率)
+    # 📊 6. 核心策略选股筛选引擎
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
-        """选股管道：严格限制策略门槛，TrendIQ 必须 >= 80，彻底消除假突破"""
         raw_diff = self.fetch_sina_market_data()
         if not raw_diff:
             return [], [], ""
@@ -438,14 +501,13 @@ class MorningStockPickerAgent:
                 vol_ratio_val = float(vol_ratio) if vol_ratio != "-" else 0.0
                 pct_60d_val = float(pct_60d) if pct_60d != "-" else 0.0
 
-                if pct_val < -4.0 or pct_val > 6.5: # 剔除追高 >6.5% 容易挨炸板的股票
+                if pct_val < -4.0 or pct_val > 6.5:
                     continue
 
                 eval_res = self.calculate_trend_iq_and_risk(
                     price_val, pct_val, turnover_val, pct_60d_val, vol_ratio_val
                 )
 
-                # 🎯 门槛校验：TrendIQ 评分未达到 80 分直接淘汰
                 if not eval_res["pass_risk"]:
                     continue
 
@@ -461,7 +523,6 @@ class MorningStockPickerAgent:
                 }
                 item_obj.update(eval_res)
 
-                # 🎯 7 大策略精细化提升胜率规则（放宽量比限制，提高换手率与60日空间过滤）
                 if is_market_healthy and -8.0 <= pct_60d_val <= 12.0 and 2.0 <= pct_val <= 6.0 and 1.8 <= vol_ratio_val <= 5.0 and 3.0 <= turnover_val <= 9.0:
                     item_obj["strategy"] = "🌸 出水芙蓉突破"
                     strategy_lotus.append(item_obj)
@@ -498,7 +559,6 @@ class MorningStockPickerAgent:
             return [], [], ""
 
         candidate_items = self.calibrate_items(candidate_items)
-        # 二次过滤：校准后 TrendIQ 必须仍维持 >= 80 分
         candidate_items = [i for i in candidate_items if i.get("trend_iq", 0) >= 80]
 
         final_items, history_data = self.filter_three_day_duplicates(candidate_items)
@@ -509,6 +569,9 @@ class MorningStockPickerAgent:
 
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
+
+        # 写入 WPS 云端表格
+        self.sync_to_wps(final_items)
 
         # 打包研报切片
         message_chunks = []
@@ -530,7 +593,7 @@ class MorningStockPickerAgent:
         return final_items, message_chunks, full_md
 
     # ==========================================
-    # 📱 6. 企业微信机器人切片推送
+    # 📱 7. 企业微信机器人切片推送
     # ==========================================
     def push_to_wechat_work(self, message_chunks: List[str]) -> bool:
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
@@ -570,7 +633,7 @@ class MorningStockPickerAgent:
         return success_all
 
     # ==========================================
-    # 📡 7. 远程 Dify 对接
+    # 📡 8. 远程 Dify 对接
     # ==========================================
     def push_to_dify(self, report_markdown: str) -> bool:
         if not DIFY_API_KEY:
@@ -624,7 +687,6 @@ def main():
     else:
         run_count = 0
 
-    # 调整拦截逻辑：MANUAL_TEST 为 True 时不限制次数，否则上限调为 5 次
     max_allowed_runs = 999 if MANUAL_TEST else 5
 
     if run_count >= max_allowed_runs:
@@ -641,11 +703,9 @@ def main():
             pushed_wechat = False
             pushed_dify = False
 
-            # 1. 分批推送至企业微信
             if hasattr(agent, "push_to_wechat_work"):
                 pushed_wechat = agent.push_to_wechat_work(message_chunks)
 
-            # 2. 推送至 Dify
             if DIFY_API_KEY:
                 pushed_dify = agent.push_to_dify(report_md)
 
