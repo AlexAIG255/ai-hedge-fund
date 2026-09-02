@@ -38,10 +38,11 @@ jobs:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
           DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
           MANUAL_TEST: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
-          # 🆕 新增 WPS 云端多维表格环境变量
-          WPS_APP_ID: ${{ secrets.WPS_APP_ID }}
-          WPS_APP_SECRET: ${{ secrets.WPS_APP_SECRET }}
-          WPS_FILE_TOKEN: ${{ secrets.WPS_FILE_TOKEN }}
+          # 🟢 已替换为飞书多维表格环境变量
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
+          FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
         run: |
           python hedge_fund/strategies/morning_picker.py
 
