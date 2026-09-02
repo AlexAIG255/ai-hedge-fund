@@ -3172,5 +3172,101 @@
     "days_tracked": 0,
     "status": "TRACKING",
     "history": []
+  },
+  {
+    "code": "600435",
+    "name": "北方导航",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-09-02",
+    "entry_price": 11.62,
+    "stop_loss": 11.04,
+    "target_price": 12.55,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600054",
+    "name": "黄山旅游",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-09-02",
+    "entry_price": 11.73,
+    "stop_loss": 11.14,
+    "target_price": 12.67,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600178",
+    "name": "东安动力",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-09-02",
+    "entry_price": 10.02,
+    "stop_loss": 9.52,
+    "target_price": 10.82,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "601996",
+    "name": "丰林集团",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-09-02",
+    "entry_price": 2.8,
+    "stop_loss": 2.66,
+    "target_price": 3.02,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "000608",
+    "name": "阳光股份",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-09-02",
+    "entry_price": 7.59,
+    "stop_loss": 7.21,
+    "target_price": 8.2,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600697",
+    "name": "欧亚集团",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-09-02",
+    "entry_price": 11.27,
+    "stop_loss": 10.71,
+    "target_price": 12.17,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600746",
+    "name": "江苏索普",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-09-02",
+    "entry_price": 7.33,
+    "stop_loss": 6.96,
+    "target_price": 7.92,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "000697",
+    "name": "炼石航空",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-09-02",
+    "entry_price": 9.05,
+    "stop_loss": 8.6,
+    "target_price": 9.77,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
