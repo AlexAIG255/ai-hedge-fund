@@ -269,33 +269,48 @@ class MorningStockPickerAgent:
         self.save_tracker(tracker_data)
 
     # ==========================================
-    # 📊 4. WPS 多维表格 API 自动同步模块
+    # 📊 4. WPS 多维表格 API 自动同步模块 (更新 API 接口地址)
     # ==========================================
     def sync_to_wps(self, selected_items: List[Dict]):
         """将早盘选出的优质个股数据自动写入 WPS 云端多维表"""
         if not (WPS_APP_ID and WPS_APP_SECRET and WPS_FILE_TOKEN):
             print("⚠️ 未完全配置 WPS 参数 (WPS_APP_ID, WPS_APP_SECRET, WPS_FILE_TOKEN)，跳过 WPS 多维表写入。")
-            print(f"   [调试日志] 环境变量状态 -> APP_ID: {'✅已配置' if WPS_APP_ID else '❌缺失'}, APP_SECRET: {'✅已配置' if WPS_APP_SECRET else '❌缺失'}, FILE_TOKEN: {'✅已配置' if WPS_FILE_TOKEN else '❌缺失'}")
             return
 
-        # 1. 获取 AccessToken
-        auth_url = "https://open.kdocs.cn/api/v3/auth/app/token"
+        # 1. 获取 App Access Token (修复 API 路由)
+        auth_url = "https://openapi.wps.cn/oauth2/token"
+        auth_payload = {
+            "app_id": WPS_APP_ID,
+            "app_secret": WPS_APP_SECRET,
+            "grant_type": "client_credentials"
+        }
+        
         try:
-            res_auth = requests.post(auth_url, json={"app_id": WPS_APP_ID, "app_secret": WPS_APP_SECRET}, timeout=10)
+            res_auth = requests.post(auth_url, json=auth_payload, timeout=10)
             token_json = res_auth.json()
-            if token_json.get("code") != 0:
+            
+            # 如果原域名无法访问，备用开放接口兼容处理
+            if res_auth.status_code != 200 or token_json.get("code") != 0:
+                # 备用轻应用/多维表鉴权接口
+                auth_url_backup = "https://open.kdocs.cn/api/v3/oauth2/token"
+                res_auth = requests.post(auth_url_backup, json={"app_id": WPS_APP_ID, "app_secret": WPS_APP_SECRET}, timeout=10)
+                token_json = res_auth.json()
+
+            access_token = token_json.get("access_token") or token_json.get("data", {}).get("access_token", "")
+            
+            if not access_token:
                 print(f"❌ WPS 鉴权失败: {token_json}")
                 return
-            access_token = token_json.get("data", {}).get("access_token", "")
         except Exception as e:
             print(f"❌ 请求 WPS Token 网络异常: {e}")
             return
 
-        # 2. 拼接多维表格行记录
+        # 2. 写入多维表格数据
         records_url = f"https://open.kdocs.cn/api/v3/ide/files/{WPS_FILE_TOKEN}/tables/records"
         headers = {
             "Content-Type": "application/json",
-            "X-Auth-Token": access_token
+            "Authorization": f"Bearer {access_token}",
+            "X-Auth-Token": access_token  # 兼容双重 Header 格式
         }
 
         today_str = datetime.now().strftime("%Y-%m-%d")
@@ -326,12 +341,14 @@ class MorningStockPickerAgent:
         if records:
             try:
                 res = requests.post(records_url, headers=headers, json={"records": records}, timeout=10)
-                if res.json().get("code") == 0:
+                res_data = res.json()
+                if res_data.get("code") == 0 or res_data.get("result") == 0:
                     print(f"🎉 成功同步 {len(records)} 条早盘选股数据至 iPad WPS 多维表格！")
                 else:
-                    print(f"❌ 同步至 WPS 失败: {res.json()}")
+                    print(f"❌ 同步至 WPS 失败: {res_data}")
             except Exception as e:
                 print(f"❌ 写入 WPS 多维表异常: {e}")
+
 
     # ==========================================
     # 🌐 5. 行情采集与动态校准
