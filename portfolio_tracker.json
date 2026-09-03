@@ -3354,5 +3354,101 @@
     "days_tracked": 0,
     "status": "TRACKING",
     "history": []
+  },
+  {
+    "code": "600088",
+    "name": "中视传媒",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-09-03",
+    "entry_price": 12.39,
+    "stop_loss": 11.77,
+    "target_price": 13.38,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600776",
+    "name": "东方通信",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-09-03",
+    "entry_price": 13.46,
+    "stop_loss": 12.79,
+    "target_price": 14.54,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600156",
+    "name": "华升股份",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-09-03",
+    "entry_price": 8.94,
+    "stop_loss": 8.49,
+    "target_price": 9.66,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600203",
+    "name": "福日电子",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-09-03",
+    "entry_price": 11.18,
+    "stop_loss": 10.62,
+    "target_price": 12.07,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600595",
+    "name": "中孚实业",
+    "strategy": "🚀 右侧刚启动",
+    "entry_date": "2026-09-03",
+    "entry_price": 6.48,
+    "stop_loss": 6.16,
+    "target_price": 7.0,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600138",
+    "name": "中青旅",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-09-03",
+    "entry_price": 7.27,
+    "stop_loss": 6.91,
+    "target_price": 7.85,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600336",
+    "name": "澳柯玛",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-09-03",
+    "entry_price": 6.71,
+    "stop_loss": 6.37,
+    "target_price": 7.25,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600596",
+    "name": "新安股份",
+    "strategy": "🦆 老鸭头突破",
+    "entry_date": "2026-09-03",
+    "entry_price": 11.36,
+    "stop_loss": 10.79,
+    "target_price": 12.27,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
