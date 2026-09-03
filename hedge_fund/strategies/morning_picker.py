@@ -272,7 +272,7 @@ class MorningStockPickerAgent:
     # ==========================================
     # 📊 4. 飞书多维表格 API 自动同步模块 (带自动授权)
     # ==========================================
-    def sync_to_feishu(self, selected_items: List[Dict]):
+        def sync_to_feishu(self, selected_items: List[Dict]):
         """将早盘选出的优质个股数据自动写入飞书云端多维表"""
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
             print("⚠️ 未配置飞书参数，跳过飞书多维表写入。")
@@ -297,26 +297,15 @@ class MorningStockPickerAgent:
             print(f"❌ 请求飞书 Token 网络异常: {e}")
             return
 
-        # 2. 🟢 自动开启 Wiki 知识库/云文档 API 访问权限
-        perm_url = f"https://open.feishu.cn/open-apis/drive/v2/permissions/{FEISHU_APP_TOKEN}/public?type=wiki"
-        perm_headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=utf-8"
-        }
-        perm_payload = {"external_access": True, "security_entity": "anyone_can_edit", "comment_entity": "anyone_can_comment"}
-        try:
-            requests.patch(perm_url, headers=perm_headers, json=perm_payload, timeout=5)
-        except Exception:
-            pass
-
-        # 3. 批量写入飞书多维表格
+        # 2. 批量写入飞书多维表格
         records_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
         headers = {
             "Content-Type": "application/json; charset=utf-8",
             "Authorization": f"Bearer {access_token}"
         }
 
-        today_str = datetime.now().strftime("%Y-%m-%d")
+        # 转换当前时间为 13 位毫秒级时间戳 (飞书 Date 字段要求)
+        today_timestamp = int(time.time() * 1000)
         records = []
 
         for item in selected_items:
@@ -327,14 +316,14 @@ class MorningStockPickerAgent:
 
             records.append({
                 "fields": {
-                    "推荐日期": today_str,
-                    "复盘日期": today_str,
+                    "推荐日期": today_timestamp,
+                    "复盘日期": today_timestamp,
                     "股票代码": str(item.get("code", "")),
                     "股票名称": str(item.get("name", "")),
                     "策略归属": str(item.get("strategy", "默认策略")),
                     "建仓价格": pick_price,
                     "最新收盘价": pick_price,
-                    "持仓收益率": "0%",
+                    "持仓收益率": 0,  # 必须为纯数字 0，不能传字符串 "0%"
                     "持股天数": 0,
                     "状态": "持仓中",
                     "TrendIQ评分": int(item.get("trend_iq", 80))
