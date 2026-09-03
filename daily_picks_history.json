@@ -1322,5 +1322,70 @@
         "pct_at_pick": "+3.43%"
       }
     ]
+  },
+  "2026-09-03": {
+    "run_count": 1,
+    "records": [
+      {
+        "code": "600172",
+        "name": "黄河旋风",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 15.24,
+        "stop_loss": 14.48,
+        "target_price": 16.46,
+        "entry_range": "15.01~15.32元",
+        "trend_iq": 95,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.32%"
+      },
+      {
+        "code": "600186",
+        "name": "莲花控股",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 11.89,
+        "stop_loss": 11.3,
+        "target_price": 12.84,
+        "entry_range": "11.71~11.95元",
+        "trend_iq": 88,
+        "risk_stars": 1,
+        "pct_at_pick": "+0.25%"
+      },
+      {
+        "code": "600250",
+        "name": "南京商旅",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 10.19,
+        "stop_loss": 9.68,
+        "target_price": 11.01,
+        "entry_range": "10.04~10.24元",
+        "trend_iq": 89,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.09%"
+      },
+      {
+        "code": "600110",
+        "name": "诺德股份",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 11.48,
+        "stop_loss": 10.91,
+        "target_price": 12.4,
+        "entry_range": "11.31~11.54元",
+        "trend_iq": 82,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.46%"
+      },
+      {
+        "code": "600162",
+        "name": "香江控股",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 4.73,
+        "stop_loss": 4.49,
+        "target_price": 5.11,
+        "entry_range": "4.66~4.75元",
+        "trend_iq": 81,
+        "risk_stars": 1,
+        "pct_at_pick": "-1.46%"
+      }
+    ]
   }
 }
