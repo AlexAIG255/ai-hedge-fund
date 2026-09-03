@@ -270,9 +270,9 @@ class MorningStockPickerAgent:
         self.save_tracker(tracker_data)
 
     # ==========================================
-    # 📊 4. 飞书多维表格 API 自动同步模块 (带自动授权)
+    # 📊 4. 飞书多维表格 API 自动同步模块
     # ==========================================
-        def sync_to_feishu(self, selected_items: List[Dict]):
+    def sync_to_feishu(self, selected_items: List[Dict]):
         """将早盘选出的优质个股数据自动写入飞书云端多维表"""
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
             print("⚠️ 未配置飞书参数，跳过飞书多维表写入。")
@@ -323,7 +323,7 @@ class MorningStockPickerAgent:
                     "策略归属": str(item.get("strategy", "默认策略")),
                     "建仓价格": pick_price,
                     "最新收盘价": pick_price,
-                    "持仓收益率": 0,  # 必须为纯数字 0，不能传字符串 "0%"
+                    "持仓收益率": 0,  # 必须为纯数字 0
                     "持股天数": 0,
                     "状态": "持仓中",
                     "TrendIQ评分": int(item.get("trend_iq", 80))
