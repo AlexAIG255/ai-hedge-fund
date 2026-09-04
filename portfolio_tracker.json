@@ -3530,5 +3530,65 @@
     "history": [],
     "current_price": 16.8,
     "total_return": 0.0
+  },
+  {
+    "code": "600354",
+    "name": "敦煌种业",
+    "strategy": "🌸 出水芙蓉突破",
+    "entry_date": "2026-09-04",
+    "entry_price": 8.2,
+    "stop_loss": 7.79,
+    "target_price": 8.86,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600613",
+    "name": "神奇制药",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-09-04",
+    "entry_price": 9.21,
+    "stop_loss": 8.75,
+    "target_price": 9.95,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "000505",
+    "name": "京粮控股",
+    "strategy": "🔄 强劲反包蓄势",
+    "entry_date": "2026-09-04",
+    "entry_price": 6.85,
+    "stop_loss": 6.51,
+    "target_price": 7.4,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600110",
+    "name": "诺德股份",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-09-04",
+    "entry_price": 11.24,
+    "stop_loss": 10.68,
+    "target_price": 12.14,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
+  },
+  {
+    "code": "600367",
+    "name": "红星发展",
+    "strategy": "🤫 买在无人问津",
+    "entry_date": "2026-09-04",
+    "entry_price": 38.06,
+    "stop_loss": 36.16,
+    "target_price": 41.1,
+    "days_tracked": 0,
+    "status": "TRACKING",
+    "history": []
   }
 ]
