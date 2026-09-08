@@ -1810,5 +1810,118 @@
         "pct_at_pick": "+5.25%"
       }
     ]
+  },
+  "2026-09-08": {
+    "run_count": 2,
+    "records": [
+      {
+        "code": "600097",
+        "name": "开创国际",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 9.97,
+        "stop_loss": 9.47,
+        "target_price": 10.77,
+        "entry_range": "9.82~10.02元",
+        "trend_iq": 92,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.75%"
+      },
+      {
+        "code": "600191",
+        "name": "华资实业",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 10.82,
+        "stop_loss": 10.28,
+        "target_price": 11.69,
+        "entry_range": "10.66~10.87元",
+        "trend_iq": 91,
+        "risk_stars": 1,
+        "pct_at_pick": "+3.05%"
+      },
+      {
+        "code": "600400",
+        "name": "红豆股份",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 3.2,
+        "stop_loss": 3.04,
+        "target_price": 3.46,
+        "entry_range": "3.15~3.22元",
+        "trend_iq": 89,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.59%"
+      },
+      {
+        "code": "600467",
+        "name": "好当家",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 2.6,
+        "stop_loss": 2.47,
+        "target_price": 2.81,
+        "entry_range": "2.56~2.61元",
+        "trend_iq": 85,
+        "risk_stars": 2,
+        "pct_at_pick": "+2.77%"
+      },
+      {
+        "code": "600096",
+        "name": "云天化",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 31.85,
+        "stop_loss": 30.26,
+        "target_price": 34.4,
+        "entry_range": "31.37~32.01元",
+        "trend_iq": 91,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.98%"
+      },
+      {
+        "code": "600351",
+        "name": "亚宝药业",
+        "strategy": "🚀 右侧刚启动",
+        "pick_price": 6.99,
+        "stop_loss": 6.64,
+        "target_price": 7.55,
+        "entry_range": "6.89~7.02元",
+        "trend_iq": 90,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.48%"
+      },
+      {
+        "code": "000021",
+        "name": "深科技",
+        "strategy": "🤫 买在无人问津",
+        "pick_price": 34.98,
+        "stop_loss": 33.23,
+        "target_price": 37.78,
+        "entry_range": "34.46~35.15元",
+        "trend_iq": 80,
+        "risk_stars": 1,
+        "pct_at_pick": "-0.88%"
+      },
+      {
+        "code": "600141",
+        "name": "兴发集团",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 31.91,
+        "stop_loss": 30.31,
+        "target_price": 34.46,
+        "entry_range": "31.43~32.07元",
+        "trend_iq": 92,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.52%"
+      },
+      {
+        "code": "600165",
+        "name": "宁科生物",
+        "strategy": "🦆 老鸭头突破",
+        "pick_price": 3.32,
+        "stop_loss": 3.15,
+        "target_price": 3.59,
+        "entry_range": "3.27~3.34元",
+        "trend_iq": 93,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.73%"
+      }
+    ]
   }
 }
