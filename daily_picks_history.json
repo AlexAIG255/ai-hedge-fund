@@ -1923,5 +1923,70 @@
         "pct_at_pick": "+5.73%"
       }
     ]
+  },
+  "2026-09-09": {
+    "run_count": 1,
+    "records": [
+      {
+        "code": "603459",
+        "name": "红板科技",
+        "strategy": "📈 均线多头向上",
+        "pick_price": 88.85,
+        "stop_loss": 84.41,
+        "target_price": 95.96,
+        "entry_range": "87.52~89.29元",
+        "trend_iq": 88,
+        "risk_stars": 1,
+        "pct_at_pick": "+1.68%"
+      },
+      {
+        "code": "002708",
+        "name": "光洋股份",
+        "strategy": "📈 均线多头向上",
+        "pick_price": 16.65,
+        "stop_loss": 15.82,
+        "target_price": 17.98,
+        "entry_range": "16.4~16.73元",
+        "trend_iq": 90,
+        "risk_stars": 1,
+        "pct_at_pick": "+2.46%"
+      },
+      {
+        "code": "600026",
+        "name": "中远海能",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 20.64,
+        "stop_loss": 19.61,
+        "target_price": 22.29,
+        "entry_range": "20.33~20.74元",
+        "trend_iq": 88,
+        "risk_stars": 1,
+        "pct_at_pick": "+2.03%"
+      },
+      {
+        "code": "600176",
+        "name": "中国巨石",
+        "strategy": "🌸 出水芙蓉突破",
+        "pick_price": 42.25,
+        "stop_loss": 40.14,
+        "target_price": 45.63,
+        "entry_range": "41.62~42.46元",
+        "trend_iq": 87,
+        "risk_stars": 1,
+        "pct_at_pick": "+2.08%"
+      },
+      {
+        "code": "600017",
+        "name": "日照港",
+        "strategy": "🔄 强劲反包蓄势",
+        "pick_price": 2.88,
+        "stop_loss": 2.74,
+        "target_price": 3.11,
+        "entry_range": "2.84~2.89元",
+        "trend_iq": 80,
+        "risk_stars": 2,
+        "pct_at_pick": "+0.00%"
+      }
+    ]
   }
 }
