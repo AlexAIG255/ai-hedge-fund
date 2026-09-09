@@ -1,7 +1,7 @@
 """
-Agent 2: 晚间复盘 Agent - 5-45日跟踪复盘 & 飞书覆盖更新 & 企微防轰炸推送 & Skill 策略自我迭代
+Agent 2: 晚间复盘 Agent - 5-45日跟踪复盘 & 飞书覆盖更新 & 企微防轰炸/防超限推送 & Skill 策略自我迭代
 针对早盘选股池，获取当日最新收盘价，精准更新飞书多维表格（覆盖收益率、持股天数、状态），
-并按天合并推送企微复盘简报，避免多卡片轰炸。
+并按 5 个股票/组自动切片分批推送企微复盘简报，规避 4096 字节长度限制。
 """
 
 import json
@@ -56,7 +56,6 @@ class EveningReviewAgent:
             print("⚠️ 未配置完整飞书环境变量，跳过多维表格同步。")
             return "", {}
 
-        # 1. 鉴权 Token
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         try:
             res_auth = requests.post(
@@ -77,8 +76,7 @@ class EveningReviewAgent:
             "Authorization": f"Bearer {access_token}",
         }
 
-        # 2. 查询记录（支持匹配 code）
-        record_map = {}  # key: stock_code, value: record_id
+        record_map = {}
         list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
         try:
             res_list = requests.get(list_url, headers=headers, params={"page_size": 100}, timeout=10)
@@ -139,15 +137,12 @@ class EveningReviewAgent:
             entry_price = item["entry_price"]
             curr_price = price_map.get(code, entry_price)
 
-            # 更新累计跟踪天数
             item["days_tracked"] = item.get("days_tracked", 0) + 1
             days = item["days_tracked"]
 
-            # 计算收益率
             ret_pct = ((curr_price - entry_price) / entry_price) * 100
             ret_str = f"{ret_pct:+.2f}%"
 
-            # 触达判定
             status = "持仓中"
             if curr_price >= item.get("target_price", entry_price * 1.1):
                 item["status"] = "WIN"
@@ -200,7 +195,7 @@ class EveningReviewAgent:
         # 保存更新后的持仓文件
         self.save_tracker(tracker_data)
 
-        # 4. 执行复盘迭代与企微汇总卡片推送
+        # 4. 执行复盘迭代与企微信每 5 个一组切片推送
         self.update_skills_postmortem(tracker_data)
         self.push_wechat_summary(review_summary)
 
@@ -233,45 +228,52 @@ class EveningReviewAgent:
             print(f"❌ 写入 Skill 日志失败: {e}")
 
     # ==========================================
-    # 📱 4. 企微合卡汇总推送 (彻底防频率拦截)
+    # 📱 4. 企微切片分批推送 (每 5 个股票一个消息)
     # ==========================================
     def push_wechat_summary(self, summary_list: List[Dict]):
         if not WECHAT_WEBHOOK or not summary_list:
             return
 
         today_str = time.strftime("%Y-%m-%d")
-        lines = [
-            f"🌙 **【晚间复盘总览】** ({today_str})",
-            f"-----------------------------------",
-        ]
+        chunk_size = 5  # 每 5 个股票拆分成一条消息发送
+        total_chunks = (len(summary_list) + chunk_size - 1) // chunk_size
 
-        for s in summary_list:
-            icon = "🔴" if "+" in s["ret_str"] else ("🟢" if "-" in s["ret_str"] else "⚪")
-            line = (
-                f"{icon} **{s['name']}** (`{s['code']}`)\n"
-                f"• 最新价: `{s['curr_price']:.2f}元` | 累计收益: `{s['ret_str']}`\n"
-                f"• 持股天数: `{s['days']}天` | 状态: **{s['status']}**\n"
-                f"• 归因: {s['reason']}\n"
-            )
-            lines.append(line)
+        for page, i in enumerate(range(0, len(summary_list), chunk_size), 1):
+            chunk = summary_list[i:i + chunk_size]
+            lines = [
+                f"🌙 **【晚间复盘总览】** ({today_str}) [{page}/{total_chunks}]",
+                f"-----------------------------------",
+            ]
 
-        lines.append("-----------------------------------")
-        lines.append("💡 *数据已同步回填至飞书多维表格*")
+            for s in chunk:
+                icon = "🔴" if "+" in s["ret_str"] else ("🟢" if "-" in s["ret_str"] else "⚪")
+                line = (
+                    f"{icon} **{s['name']}** (`{s['code']}`)\n"
+                    f"• 最新价: `{s['curr_price']:.2f}元` | 收益: `{s['ret_str']}`\n"
+                    f"• 天数: `{s['days']}天` | 状态: **{s['status']}** ({s['reason']})\n"
+                )
+                lines.append(line)
 
-        full_msg = "\n".join(lines)
-        payload = {
-            "msgtype": "markdown",
-            "markdown": {"content": full_msg},
-        }
+            lines.append("-----------------------------------")
+            if page == total_chunks:
+                lines.append("💡 *数据已同步回填至飞书多维表格*")
 
-        try:
-            res = requests.post(WECHAT_WEBHOOK, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
-            if res.json().get("errcode") == 0:
-                print("🎉 晚间复盘报告已成功一次性汇总推送至企业微信！")
-            else:
-                print(f"❌ 企微推送失败: {res.json()}")
-        except Exception as e:
-            print(f"❌ 企微推送异常: {e}")
+            full_msg = "\n".join(lines)
+            payload = {
+                "msgtype": "markdown",
+                "markdown": {"content": full_msg},
+            }
+
+            try:
+                res = requests.post(WECHAT_WEBHOOK, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
+                if res.json().get("errcode") == 0:
+                    print(f"🎉 晚间复盘报告 [{page}/{total_chunks}] 已成功推送至企业微信！")
+                else:
+                    print(f"❌ 企微推送失败 [{page}/{total_chunks}]: {res.json()}")
+            except Exception as e:
+                print(f"❌ 企微推送异常: {e}")
+
+            time.sleep(1)  # 每次发送后间隔 1 秒，避免触发频控拦截
 
 
 if __name__ == "__main__":
