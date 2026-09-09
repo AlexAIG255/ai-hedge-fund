@@ -53,7 +53,11 @@ class EveningReviewAgent:
     def get_feishu_token_and_records(self) -> Tuple[str, Dict[str, str]]:
         """获取 Token 并检索飞书中所有记录，建立 (股票代码 -> record_id) 的映射关系"""
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
-            print("⚠️ 未配置完整飞书环境变量，跳过多维表格同步。")
+            print("⚠️ 飞书环境变量不完整，跳过多维表格同步：")
+            print(f"   FEISHU_APP_ID: {'✅ 已设置' if FEISHU_APP_ID else '❌ 缺失'}")
+            print(f"   FEISHU_APP_SECRET: {'✅ 已设置' if FEISHU_APP_SECRET else '❌ 缺失'}")
+            print(f"   FEISHU_APP_TOKEN: {'✅ 已设置' if FEISHU_APP_TOKEN else '❌ 缺失'}")
+            print(f"   FEISHU_TABLE_ID: {'✅ 已设置' if FEISHU_TABLE_ID else '❌ 缺失'}")
             return "", {}
 
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
@@ -65,8 +69,9 @@ class EveningReviewAgent:
             )
             access_token = res_auth.json().get("tenant_access_token", "")
             if not access_token:
-                print("❌ 获取飞书 Access Token 失败。")
+                print(f"❌ 获取飞书 Access Token 失败: {res_auth.text}")
                 return "", {}
+            print("✅ 飞书 Access Token 获取成功！")
         except Exception as e:
             print(f"❌ 飞书鉴权网络请求异常: {e}")
             return "", {}
@@ -84,9 +89,17 @@ class EveningReviewAgent:
                 items = res_list.json().get("data", {}).get("items", [])
                 for r in items:
                     rec_id = r.get("record_id")
-                    code = str(r.get("fields", {}).get("股票代码", ""))
+                    fields = r.get("fields", {})
+                    # 兼容不同列名定义 (股票代码 / 代码)
+                    code = str(fields.get("股票代码") or fields.get("代码") or "").strip()
+                    # 补充补零逻辑，例: 60000 -> 060000 避免数据格式混乱
+                    if code and len(code) < 6:
+                        code = code.zfill(6)
                     if code and rec_id:
                         record_map[code] = rec_id
+                print(f"📊 飞书表格匹配成功，读取到 {len(record_map)} 条已有记录。")
+            else:
+                print(f"⚠️ 拉取飞书记录失败 ({res_list.status_code}): {res_list.text}")
         except Exception as e:
             print(f"⚠️ 获取飞书多维表格记录列表异常: {e}")
 
@@ -143,7 +156,6 @@ class EveningReviewAgent:
             ret_pct = ((curr_price - entry_price) / entry_price) * 100
             ret_str = f"{ret_pct:+.2f}%"
 
-            # 强弱与状态判定
             status = "持仓中"
             strength = "🔥 强势" if ret_pct >= 0 else "⚠️ 弱势"
 
@@ -177,32 +189,39 @@ class EveningReviewAgent:
             })
 
             # 3. 🚀 回填/更新飞书多维表格
-            if access_token and code in record_map:
-                record_id = record_map[code]
-                update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/{record_id}"
-                headers_fs = {
-                    "Content-Type": "application/json; charset=utf-8",
-                    "Authorization": f"Bearer {access_token}",
-                }
-                payload_fs = {
-                    "fields": {
-                        "复盘日期": today_timestamp,
-                        "最新收盘价": curr_price,
-                        "持仓收益率": ret_str,
-                        "持股天数": days,
-                        "状态": status,
-                        "胜负归因": f"[{strength}] {item.get('reason', '持仓观察中')}",
+            if access_token:
+                if code in record_map:
+                    record_id = record_map[code]
+                    update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/{record_id}"
+                    headers_fs = {
+                        "Content-Type": "application/json; charset=utf-8",
+                        "Authorization": f"Bearer {access_token}",
                     }
-                }
-                try:
-                    requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
-                except Exception as e:
-                    print(f"❌ 更新飞书 Record ({code}) 异常: {e}")
+                    payload_fs = {
+                        "fields": {
+                            "复盘日期": today_timestamp,
+                            "最新收盘价": curr_price,
+                            "持仓收益率": ret_str,
+                            "持股天数": days,
+                            "状态": status,
+                            "胜负归因": f"[{strength}] {item.get('reason', '持仓观察中')}",
+                        }
+                    }
+                    try:
+                        res_patch = requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
+                        if res_patch.status_code == 200:
+                            print(f"✅ 飞书表格已同步: {item['name']}({code}) -> {status}")
+                        else:
+                            print(f"❌ 飞书同步失败 ({code}): {res_patch.text}")
+                    except Exception as e:
+                        print(f"❌ 更新飞书 Record ({code}) 异常: {e}")
+                else:
+                    print(f"⚠️ 股票 {item['name']}({code}) 在飞书表格中未找到对应 Record ID，无法更新。")
 
         # 保存更新后的持仓文件
         self.save_tracker(tracker_data)
 
-        # 4. 执行复盘迭代与企微切片推送（附带深度归因总结）
+        # 4. 执行复盘迭代与企微切片推送
         self.update_skills_postmortem(tracker_data)
         self.push_wechat_summary(review_summary)
 
@@ -248,15 +267,13 @@ class EveningReviewAgent:
             return
 
         today_str = time.strftime("%Y-%m-%d")
-        chunk_size = 5  # 每 5 个股票为一组拆分推送
+        chunk_size = 5
         total_chunks = (len(summary_list) + chunk_size - 1) // chunk_size
 
-        # 1. 计算整体统计与强弱列表
         strong_stocks = [s for s in summary_list if s["ret_pct"] >= 0]
         weak_stocks = [s for s in summary_list if s["ret_pct"] < 0]
         avg_ret = sum(s["ret_pct"] for s in summary_list) / len(summary_list)
 
-        # 2. 分批发送个股复盘详情
         for page, i in enumerate(range(0, len(summary_list), chunk_size), 1):
             chunk = summary_list[i:i + chunk_size]
             lines = [
@@ -276,7 +293,6 @@ class EveningReviewAgent:
 
             lines.append("-----------------------------------")
 
-            # 3. 在最后一页加上【强弱筛选与盈亏归因总结】
             if page == total_chunks:
                 lines.append("📊 **【持仓强弱筛选与深度总结】**\n")
                 lines.append(f"• **平均收益率**: `{avg_ret:+.2f}%`")
@@ -306,7 +322,7 @@ class EveningReviewAgent:
             except Exception as e:
                 print(f"❌ 企微推送异常: {e}")
 
-            time.sleep(1)  # 间隔 1 秒，防频繁拦截
+            time.sleep(1)
 
 
 if __name__ == "__main__":
