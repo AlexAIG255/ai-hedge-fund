@@ -48,16 +48,12 @@ class EveningReviewAgent:
             print(f"❌ 保存持仓跟踪池失败: {e}")
 
     # ==========================================
-    # 🔍 1. 获取飞书 Access Token 与 记录 List
+    # 🔍 1. 获取飞书 Access Token 与 记录 List (全解析兼容)
     # ==========================================
     def get_feishu_token_and_records(self) -> Tuple[str, Dict[str, str]]:
         """获取 Token 并检索飞书中所有记录，建立 (股票代码 -> record_id) 的映射关系"""
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
-            print("⚠️ 飞书环境变量不完整，跳过多维表格同步：")
-            print(f"   FEISHU_APP_ID: {'✅ 已设置' if FEISHU_APP_ID else '❌ 缺失'}")
-            print(f"   FEISHU_APP_SECRET: {'✅ 已设置' if FEISHU_APP_SECRET else '❌ 缺失'}")
-            print(f"   FEISHU_APP_TOKEN: {'✅ 已设置' if FEISHU_APP_TOKEN else '❌ 缺失'}")
-            print(f"   FEISHU_TABLE_ID: {'✅ 已设置' if FEISHU_TABLE_ID else '❌ 缺失'}")
+            print("⚠️ 飞书环境变量不完整，跳过多维表格同步。")
             return "", {}
 
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
@@ -90,13 +86,21 @@ class EveningReviewAgent:
                 for r in items:
                     rec_id = r.get("record_id")
                     fields = r.get("fields", {})
-                    # 兼容不同列名定义 (股票代码 / 代码)
-                    code = str(fields.get("股票代码") or fields.get("代码") or "").strip()
-                    # 补充补零逻辑，例: 60000 -> 060000 避免数据格式混乱
-                    if code and len(code) < 6:
-                        code = code.zfill(6)
+
+                    # 强兼容解析：处理文本、数字、超链接数组等飞书不同字段数据结构
+                    code_val = fields.get("股票代码") or fields.get("代码") or ""
+                    if isinstance(code_val, list) and len(code_val) > 0:
+                        code_val = code_val[0].get("text", "") if isinstance(code_val[0], dict) else str(code_val[0])
+                    elif isinstance(code_val, dict):
+                        code_val = code_val.get("text", "")
+
+                    code = str(code_val).strip()
+                    if code and len(code) < 6 and code.isdigit():
+                        code = code.zfill(6)  # 智能补全 6 位代码格式
+
                     if code and rec_id:
                         record_map[code] = rec_id
+
                 print(f"📊 飞书表格匹配成功，读取到 {len(record_map)} 条已有记录。")
             else:
                 print(f"⚠️ 拉取飞书记录失败 ({res_list.status_code}): {res_list.text}")
@@ -210,13 +214,11 @@ class EveningReviewAgent:
                     try:
                         res_patch = requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
                         if res_patch.status_code == 200:
-                            print(f"✅ 飞书表格已同步: {item['name']}({code}) -> {status}")
+                            print(f"✅ 飞书表格已成功同步: {item['name']}({code}) -> {status}")
                         else:
                             print(f"❌ 飞书同步失败 ({code}): {res_patch.text}")
                     except Exception as e:
                         print(f"❌ 更新飞书 Record ({code}) 异常: {e}")
-                else:
-                    print(f"⚠️ 股票 {item['name']}({code}) 在飞书表格中未找到对应 Record ID，无法更新。")
 
         # 保存更新后的持仓文件
         self.save_tracker(tracker_data)
