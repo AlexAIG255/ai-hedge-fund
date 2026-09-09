@@ -7,8 +7,7 @@ Agent 2: 晚间复盘 Agent - 5-45日跟踪复盘 & 飞书覆盖更新 & 企微�
 import json
 import os
 import time
-from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Tuple
 import requests
 
 # ⚙️ 飞书多维表格 API 配置
@@ -26,7 +25,7 @@ POSTMORTEM_FILE = "skills_postmortem.md"
 
 class EveningReviewAgent:
 
-    def __init__(...):
+    def __init__(self):
         self.tracker_file = TRACKER_FILE
         self.postmortem_file = POSTMORTEM_FILE
 
@@ -150,11 +149,11 @@ class EveningReviewAgent:
 
             # 触达判定
             status = "持仓中"
-            if curr_price >= item["target_price"]:
+            if curr_price >= item.get("target_price", entry_price * 1.1):
                 item["status"] = "WIN"
                 item["reason"] = "达标止盈: 突破阻力线，动能放量"
                 status = "已止盈"
-            elif curr_price <= item["stop_loss"]:
+            elif curr_price <= item.get("stop_loss", entry_price * 0.95):
                 item["status"] = "LOSS"
                 item["reason"] = "触及止损: 回踩跌破安全防线"
                 status = "已止损"
@@ -175,7 +174,7 @@ class EveningReviewAgent:
                 "reason": item.get("reason", "持仓观察中"),
             })
 
-            # 3. 🚀 回填/更新飞书多维表格（对已存在记录更新最新收盘价与收益率）
+            # 3. 🚀 回填/更新飞书多维表格
             if access_token and code in record_map:
                 record_id = record_map[code]
                 update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/{record_id}"
@@ -187,7 +186,7 @@ class EveningReviewAgent:
                     "fields": {
                         "复盘日期": today_timestamp,
                         "最新收盘价": curr_price,
-                        "持仓收益率": ret_str,  # 精准匹配文本/字符串类型
+                        "持仓收益率": ret_str,
                         "持股天数": days,
                         "状态": status,
                         "胜负归因": item.get("reason", "持仓观察中"),
