@@ -419,7 +419,7 @@ class MorningStockPickerAgent:
                         "建仓价格": pick_price,
                         "最新收盘价": pick_price,
                         # 💡 核心修复：传入纯数字 0 (或 0.0)，匹配飞书多维表格 # 数字/百分比 格式，避免 1254061 报错
-                        "持仓收益率": 0,
+                        "持仓收益率": "0%",
                         "持股天数": 0,
                         "状态": "持仓中",
                         "TrendIQ评分": int(item.get("trend_iq", 80)),
