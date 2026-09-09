@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '45 1 * * 1-5'  # 早上选股 (北京时间 09:45)
-    - cron: '0 8 * * 1-5'   # 晚间复盘 (北京时间 16:00)
+    - cron: '0 10 * * 1-5'   # 晚间复盘 (北京时间 18:00)
 
 permissions:
   contents: write
