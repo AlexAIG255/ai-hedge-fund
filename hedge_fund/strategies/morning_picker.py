@@ -1,7 +1,7 @@
 """
-Agent 1: 大盘早晚选股 Agent - 圆月线波段模型集成 & 飞书完全修复 & 5-45日长周期跟踪与 Skill 自动升级版
+Agent 1: 大盘早晚选股 Agent - 圆月线波段模型集成 & 飞书防重复写入 & 5-45日长周期跟踪与 Skill 自动升级版
 集成了全量 A 股抓取（5000+只）、圆月线波段选股（强势/低吸/超跌）、5-45日跟踪复盘、
-飞书数据类型精准对齐、胜负归因分析与 Skill 策略自迭代能力。
+飞书数据类型精准对齐、飞书当天重复写入拦截、胜负归因分析与 Skill 策略自迭代能力。
 """
 
 import json
@@ -214,29 +214,20 @@ class MorningStockPickerAgent:
         is_shrink_vol: bool,
         is_macd_improving: bool,
     ) -> Tuple[str, str, bool]:
-        """
-        根据圆月线波段模型判定当前波段位置
-        返回: (区分类别, 策略名称, 是否建议关注)
-        """
-        # 六、熊区判断（一票否决）
+
         if c < ma55 and ma21 < ma55:
             return "BEAR_ZONE", "熊区规避", False
 
-        # 五、趋势破坏
         if c < ma21 and ma21 <= prev_ma21:
             return "TREND_BROKEN", "趋势破坏", False
 
-        # 均线趋势方向
-        ma12_up = ma12 >= prev_ma3  # 粗略判定趋势向好
         ma21_up = ma21 >= prev_ma21
         ma55_up = ma55 >= prev_ma55
 
-        # 四、超跌增强条件
         if avg_bias <= -20.0:
             if (prev_ma3 <= prev_ma5 and ma3 > ma5) and is_macd_improving:
                 return "OVERSOLD_BOUNCE", "🌙 圆月线-超跌强弹", True
 
-        # 三、波段低吸观察区
         if (
             c <= ma12
             and c >= ma21
@@ -247,11 +238,9 @@ class MorningStockPickerAgent:
         ):
             return "LOW_BUY_ZONE", "🌙 圆月线-波段低吸", True
 
-        # 一、强势状态
         if c > ma3 and ma3 > ma12 and ma12 > ma21 and ma21 > ma55 and ma21_up:
             return "STRONG_ZONE", "🌙 圆月线-强势主升", True
 
-        # 二、强势回调
         if c < ma3 and c > ma12 and ma12 > ma21 and ma21 > ma55:
             return "STRONG_PULLBACK", "🌙 圆月线-强势回调", True
 
@@ -317,7 +306,6 @@ class MorningStockPickerAgent:
         self.save_tracker(tracker_data)
 
     def run_postmortem_and_upgrade_skill(self):
-        """进行5-45日跨度复盘，分析胜负原因并自动升级 Skill 控制文档"""
         tracker_data = self.load_tracker()
         if not tracker_data:
             return
@@ -340,7 +328,6 @@ class MorningStockPickerAgent:
             item["days_tracked"] = item.get("days_tracked", 0) + 1
             days = item["days_tracked"]
 
-            # 获取最新价格校准
             tc_code = (
                 f"sh{item['code']}"
                 if item["code"].startswith("60")
@@ -425,7 +412,7 @@ class MorningStockPickerAgent:
             print(f"❌ 写入 Postmortem 文件失败: {e}")
 
     # ==========================================
-    # 📊 5. 飞书多维表格 API 同步 (修复数值格式)
+    # 📊 5. 飞书多维表格 API 同步 (含防重复写入)
     # ==========================================
     def sync_to_feishu(self, selected_items: List[Dict]):
         if not (
@@ -437,6 +424,7 @@ class MorningStockPickerAgent:
             print("⚠️ 未配置完整飞书环境变量，跳过飞书同步。")
             return
 
+        # 1. 鉴权获取 Token
         auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         try:
             res_auth = requests.post(
@@ -455,16 +443,52 @@ class MorningStockPickerAgent:
             print(f"❌ 飞书鉴权网络请求异常: {e}")
             return
 
-        records_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
         headers = {
             "Content-Type": "application/json; charset=utf-8",
             "Authorization": f"Bearer {access_token}",
         }
 
+        # 2. 🔍 防重复写入检查：查询飞书中现有的记录
+        existing_keys = set()
+        list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
+        try:
+            res_list = requests.get(list_url, headers=headers, params={"page_size": 100}, timeout=10)
+            if res_list.status_code == 200:
+                data = res_list.json()
+                items = data.get("data", {}).get("items", [])
+                today_ymd = time.strftime("%Y-%m-%d")
+                
+                for r in items:
+                    fields = r.get("fields", {})
+                    rec_code = str(fields.get("股票代码", ""))
+                    rec_date_raw = fields.get("推荐日期")
+                    
+                    # 将飞书返回的时间戳转为 YYYY-MM-DD
+                    if isinstance(rec_date_raw, (int, float)):
+                        rec_date_str = datetime.fromtimestamp(rec_date_raw / 1000).strftime("%Y-%m-%d")
+                    else:
+                        rec_date_str = str(rec_date_raw)
+                    
+                    # 组合当天+股票代码作为唯一标识
+                    if rec_code:
+                        existing_keys.add(f"{rec_date_str}_{rec_code}")
+        except Exception as e:
+            print(f"⚠️ 查询飞书历史数据异常 (继续尝试写入): {e}")
+
+        # 3. 构造本次待写入记录 (排重过滤)
         today_timestamp = int(time.time() * 1000)
+        today_ymd_str = time.strftime("%Y-%m-%d")
         records = []
 
         for item in selected_items:
+            stock_code = str(item.get("code", ""))
+            unique_key = f"{today_ymd_str}_{stock_code}"
+
+            # 🛡️ 命中重复，直接打断不写入
+            if unique_key in existing_keys:
+                print(f"🙈 【防重复拦截】股票 `{stock_code}` ({item.get('name')}) 当天已录入飞书，跳过。")
+                continue
+
             try:
                 pick_price = float(str(item.get("price", "0")).replace("元", ""))
             except ValueError:
@@ -475,12 +499,11 @@ class MorningStockPickerAgent:
                     "fields": {
                         "推荐日期": today_timestamp,
                         "复盘日期": today_timestamp,
-                        "股票代码": str(item.get("code", "")),
+                        "股票代码": stock_code,
                         "股票名称": str(item.get("name", "")),
                         "策略归属": str(item.get("strategy", "默认策略")),
                         "建仓价格": pick_price,
                         "最新收盘价": pick_price,
-                        # 💡 核心修复：传入字符串 "0%"，对齐飞书 Multiline/文本 格式，避免 1254060 报错
                         "持仓收益率": "0%",
                         "持股天数": 0,
                         "状态": "持仓中",
@@ -490,10 +513,12 @@ class MorningStockPickerAgent:
                 }
             )
 
+        # 4. 执行写入
         if records:
+            batch_create_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
             try:
                 res = requests.post(
-                    records_url,
+                    batch_create_url,
                     headers=headers,
                     json={"records": records},
                     timeout=10,
@@ -501,12 +526,14 @@ class MorningStockPickerAgent:
                 res_data = res.json()
                 if res_data.get("code") == 0:
                     print(
-                        f"🎉 成功同步 {len(records)} 条记录至飞书多维表格！"
+                        f"🎉 成功同步 {len(records)} 条新记录至飞书多维表格！"
                     )
                 else:
                     print(f"❌ 写入飞书失败: {res_data}")
             except Exception as e:
                 print(f"❌ 写入飞书异常: {e}")
+        else:
+            print("💡 今日所有推荐标的均已存在于飞书表格中，无需写入。")
 
     # ==========================================
     # 🌐 6. 行情全量采集（扩展至 5500 只）
@@ -526,7 +553,6 @@ class MorningStockPickerAgent:
         return True
 
     def fetch_sina_market_data(self, scan_target=5500) -> List[Dict]:
-        """扩容扫表范围至 5500 只，穿透全量 A 股"""
         all_diff = []
         page_size = 100
         total_pages = scan_target // page_size
@@ -567,7 +593,6 @@ class MorningStockPickerAgent:
                                     "f8": float(item.get("turnoverratio", 0) or 0),
                                     "f10": 1.2,
                                     "f24": float(item.get("changepercent", 0) or 0) * 2.5,
-                                    # 构造圆月线需要的估算均线
                                     "ma3": trade_price * 1.002,
                                     "ma5": trade_price * 0.998,
                                     "ma12": trade_price * 0.985,
@@ -704,7 +729,7 @@ class MorningStockPickerAgent:
         return items_list
 
     # ==========================================
-    # 📊 7. 核心策略选股引擎 (整合圆月线模型)
+    # 📊 7. 核心策略选股引擎
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
         self.run_postmortem_and_upgrade_skill()
@@ -750,9 +775,8 @@ class MorningStockPickerAgent:
                 if not eval_res["pass_risk"]:
                     continue
 
-                # 🌙 运行圆月线模型逻辑判定
                 is_shrink_vol = turnover_val < 5.0 and vol_ratio_val < 2.0
-                is_macd_improving = pct_val > -1.0  # 动态模拟 MACD 柱状图改善
+                is_macd_improving = pct_val > -1.0
 
                 yy_zone, yy_strategy_name, yy_pass = self.evaluate_yuanyue_model(
                     c=price_val,
@@ -786,7 +810,6 @@ class MorningStockPickerAgent:
                 }
                 item_obj.update(eval_res)
 
-                # 分流策略池
                 if yy_zone == "LOW_BUY_ZONE":
                     strategy_yuanyue_low_buy.append(item_obj)
                 elif yy_zone == "OVERSOLD_BOUNCE":
