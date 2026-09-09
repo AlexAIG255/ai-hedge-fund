@@ -24,10 +24,6 @@ FEISHU_TABLE_ID = os.environ.get("FEISHU_TABLE_ID", "").strip()
 
 # ⚙️ 控制与时间参数配置
 MANUAL_TEST = os.environ.get("MANUAL_TEST", "false").lower() in ["true", "1", "yes"]
-TARGET_SUCCESS_COUNT = 1 if MANUAL_TEST else 2
-FAILURE_WAIT_SECONDS = 300
-SUCCESS_WAIT_SECONDS = 600
-MAX_TOTAL_ATTEMPTS = 15
 
 # 🎯 持久化文件
 HISTORY_FILE = "daily_picks_history.json"
@@ -299,7 +295,6 @@ class MorningStockPickerAgent:
                             / item["entry_price"]
                         ) * 100
 
-                        # 胜负归因判断逻辑 (周期 5-45 天)
                         if curr_price >= item["target_price"]:
                             item["status"] = "WIN"
                             item["reason"] = "达标止盈: 向上突破阻力位，动能强劲"
@@ -331,7 +326,6 @@ class MorningStockPickerAgent:
 
         self.save_tracker(tracker_data)
 
-        # 胜率与 Skill 升级控制
         win_rate = (
             (win_count / total_completed * 100) if total_completed > 0 else 0.0
         )
@@ -369,7 +363,7 @@ class MorningStockPickerAgent:
             print(f"❌ 写入 Postmortem 文件失败: {e}")
 
     # ==========================================
-    # 📊 4. 飞书多维表格 API 同步 (兼容字符与数字)
+    # 📊 4. 飞书多维表格 API 同步 (修复数值格式)
     # ==========================================
     def sync_to_feishu(self, selected_items: List[Dict]):
         if not (
@@ -424,8 +418,8 @@ class MorningStockPickerAgent:
                         "策略归属": str(item.get("strategy", "默认策略")),
                         "建仓价格": pick_price,
                         "最新收盘价": pick_price,
-                        # 🔧 核心修复：转为字符串 "0.00%" 以适配飞书 Multiline/Text 格式，防止 1254060 报错
-                        "持仓收益率": "0.00%",
+                        # 💡 核心修复：传入纯数字 0 (或 0.0)，匹配飞书多维表格 # 数字/百分比 格式，避免 1254061 报错
+                        "持仓收益率": 0,
                         "持股天数": 0,
                         "状态": "持仓中",
                         "TrendIQ评分": int(item.get("trend_iq", 80)),
@@ -517,7 +511,7 @@ class MorningStockPickerAgent:
                                         item.get("changepercent", 0) or 0
                                     )
                                     * 2.5,
-                                    "ma_up": True,  # 均线向上标志位
+                                    "ma_up": True,
                                 }
                             )
             except Exception:
@@ -531,7 +525,6 @@ class MorningStockPickerAgent:
         return all_diff
 
     def _fetch_tencent_backup(self) -> List[Dict]:
-        """扩展腾讯接口全号段扫描"""
         all_diff = []
         code_list = (
             [f"sh600{i:03d}" for i in range(1000)]
@@ -635,10 +628,9 @@ class MorningStockPickerAgent:
         return items_list
 
     # ==========================================
-    # 📊 6. 核心策略选股引擎 (增设均线多头策略)
+    # 📊 6. 核心策略选股引擎
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
-        # 执行 5-45 日跟踪复盘与 Skill 自动升级
         self.run_postmortem_and_upgrade_skill()
 
         raw_diff = self.fetch_sina_market_data()
@@ -652,10 +644,7 @@ class MorningStockPickerAgent:
             strategy_fanbao,
             strategy_oversold,
             strategy_ma_up,
-            strategy_right_side,
-            strategy_quiet_bottom,
-            strategy_duck_head,
-        ) = ([], [], [], [], [], [], [])
+        ) = ([], [], [], [])
 
         for item in raw_diff:
             code, name = str(item.get("f12", "")), str(item.get("f14", ""))
@@ -697,7 +686,6 @@ class MorningStockPickerAgent:
                 }
                 item_obj.update(eval_res)
 
-                # 增加策略：📈 均线多头向上强趋势
                 if (
                     is_market_healthy
                     and 1.5 <= pct_val <= 5.0
