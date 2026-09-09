@@ -3,8 +3,8 @@ name: Daily Quant Morning & Evening Workflow
 on:
   workflow_dispatch:
   schedule:
-    - cron: '45 1 * * 1-5'  # 早上选股 (北京时间 09:45)
-    - cron: '0 10 * * 1-5'   # 晚间复盘 (北京时间 18:00)
+    - cron: '40 1 * * 1-5'  # 早上选股 (UTC 01:40 = 北京时间 09:40)
+    - cron: '0 10 * * 1-5'  # 晚间复盘 (UTC 10:00 = 北京时间 18:00)
 
 permissions:
   contents: write
@@ -13,7 +13,7 @@ jobs:
   morning-picker:
     name: Run Morning Stock Picker
     runs-on: ubuntu-latest
-    if: github.event.schedule == '45 1 * * 1-5' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '40 1 * * 1-5' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,6 +24,10 @@ jobs:
       - name: Run Morning Picker
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
+          FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
         run: python hedge_fund/strategies/morning_picker.py
 
       - name: Commit and Push Pick History
@@ -38,7 +42,7 @@ jobs:
   evening-review:
     name: Run Evening Review
     runs-on: ubuntu-latest
-    if: github.event.schedule == '0 8 * * 1-5' || github.event_name == 'workflow_dispatch'
+    if: github.event.schedule == '0 10 * * 1-5' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,6 +53,10 @@ jobs:
       - name: Run Evening Review
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+          FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
+          FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
+          FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
+          FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
         run: python hedge_fund/strategies/evening_review.py
 
       - name: Commit and Push Evening Review Changes
