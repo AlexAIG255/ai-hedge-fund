@@ -1,28 +1,28 @@
 """
-Agent 2: 晚盘收盘复盘与持仓跟踪 Agent (Evening Review Agent)
+Agent 2: 晚盘收盘复盘与持仓跟踪 Agent (Evening Review Agent) - 飞书原生适配升级版
 - 精准读取 morning_picker 生成的持仓池，匹配推荐日期与策略
 - 动态计算持股天数 (T+N)、持仓收益率、盈亏比 (Reward/Risk Ratio)
 - 触发机制：止盈 / 止损 / 10日满期 自动结案
-- 消息切片推送至企业微信，彻底解决长文本限制问题
-- 🆕 自动无缝同步最新复盘数据至 iPad / 云端 WPS 多维表格
+- 自动更新与同步数据至飞书多维表格 (Feishu Bitable)
 """
 
 import os
 import json
 import time
 import re
-import requests
 from datetime import datetime
+import requests
 
-# 文件路径配置
+# 🎯 持久化文件路径
 HISTORY_FILE = "daily_picks_history.json"
 TRACKER_FILE = "portfolio_tracker.json"
 POSTMORTEM_FILE = "skills_postmortem.md"
 
-# ⚙️ WPS 多维表格 API 配置 (环境变量)
-WPS_APP_ID = os.environ.get("WPS_APP_ID", "").strip()
-WPS_APP_SECRET = os.environ.get("WPS_APP_SECRET", "").strip()
-WPS_FILE_TOKEN = os.environ.get("WPS_FILE_TOKEN", "").strip()
+# ⚙️ 飞书多维表格 API 配置 (来自环境变量)
+FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "").strip()
+FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "").strip()
+FEISHU_APP_TOKEN = os.environ.get("FEISHU_APP_TOKEN", "").strip()
+FEISHU_TABLE_ID = os.environ.get("FEISHU_TABLE_ID", "").strip()
 
 
 class EveningReviewAgent:
@@ -89,65 +89,64 @@ class EveningReviewAgent:
         return quotes
 
     # ==========================================
-    # ⚙️ WPS 云端多维表格 API 自动化同步模块
+    # ⚙️ 飞书多维表格 API 增量同步/更新模块
     # ==========================================
-    def get_wps_access_token(self) -> str:
-        """获取 WPS 开放平台的 AccessToken"""
-        if not (WPS_APP_ID and WPS_APP_SECRET):
+    def get_feishu_tenant_token(self) -> str:
+        """获取飞书 Tenant Access Token"""
+        if not (FEISHU_APP_ID and FEISHU_APP_SECRET):
             return ""
-        url = "https://open.kdocs.cn/api/v3/auth/app/token"
+        auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         try:
             res = requests.post(
-                url, 
-                json={"app_id": WPS_APP_ID, "app_secret": WPS_APP_SECRET}, 
+                auth_url,
+                json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
                 timeout=10
             )
             data = res.json()
             if data.get("code") == 0:
-                return data.get("data", {}).get("access_token", "")
+                return data.get("tenant_access_token", "")
             else:
-                print(f"⚠️ WPS 鉴权失败: {data}")
+                print(f"⚠️ 飞书鉴权失败: {data}")
         except Exception as e:
-            print(f"❌ WPS Token 获取异常: {e}")
+            print(f"❌ 飞书 Token 获取异常: {e}")
         return ""
 
-    def sync_to_wps_sheet(self, active_items: list):
-        """将复盘后的真实收益率、持股天数 (T+N)、最新收盘价与结案状态写回 WPS 云端"""
-        token = self.get_wps_access_token()
-        if not token or not WPS_FILE_TOKEN:
-            print("⚠️ 未配置完整 WPS 参数，跳过多维表格云端同步。")
+    def sync_to_feishu_sheet(self, active_items: list):
+        """将晚盘复盘后的收盘价、持仓收益率、持股天数与状态同步更新至飞书多维表格"""
+        access_token = self.get_feishu_tenant_token()
+        if not access_token or not (FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
+            print("⚠️ 未配置完整飞书环境变量，跳过多维表格同步。")
             return
 
         headers = {
-            "Content-Type": "application/json",
-            "X-Auth-Token": token
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {access_token}"
         }
-        today_str = datetime.now().strftime("%Y-%m-%d")
 
-        # 1. 先读取当前多维表里的已有记录，找到匹配的 record_id
-        list_records_url = f"https://open.kdocs.cn/api/v3/ide/files/{WPS_FILE_TOKEN}/tables/records"
+        # 1. 获取现有表格中的记录（提取 record_id 建立映射关系）
+        search_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
         existing_records = {}
         try:
-            res_list = requests.get(list_records_url, headers=headers, timeout=10)
-            if res_list.json().get("code") == 0:
-                recs = res_list.json().get("data", {}).get("records", [])
+            res_search = requests.get(search_url, headers=headers, params={"page_size": 200}, timeout=10)
+            res_json = res_search.json()
+            if res_json.get("code") == 0:
+                recs = res_json.get("data", {}).get("items", [])
                 for r in recs:
                     f = r.get("fields", {})
-                    # 组合“股票代码+推荐日期”作为唯一识别人
-                    key = f"{f.get('股票代码')}_{f.get('推荐日期')}"
-                    existing_records[key] = r.get("record_id")
+                    code = str(f.get("股票代码", ""))
+                    # 使用 股票代码 作为主键索引匹配
+                    if code:
+                        existing_records[code] = r.get("record_id")
         except Exception as e:
-            print(f"⚠️ 查询 WPS 多维表现有记录失败: {e}")
+            print(f"⚠️ 查询飞书已有记录失败: {e}")
 
-        # 2. 构建推送与更新批量 Payload
+        # 2. 构建新增与更新 Payload 结构
         add_records = []
         update_records = []
+        today_timestamp = int(time.time() * 1000)
 
         for item in active_items:
             code = str(item.get("code", ""))
-            entry_date = str(item.get("entry_date", item.get("pick_date", today_str)))
-            unique_key = f"{code}_{entry_date}"
-
             entry_p = float(item.get("entry_price", item.get("buy_price", item.get("pick_price", 0))))
             close_p = float(item.get("current_price", entry_p))
             total_ret = float(item.get("total_return", 0.0))
@@ -155,57 +154,62 @@ class EveningReviewAgent:
 
             status_str = "持仓中"
             if item.get("status") == "CLOSED":
-                status_str = f"已结案({item.get('close_reason', '触发离场')})"
+                status_str = f"已结案({item.get('close_reason', '离场')})"
 
+            # 🛠️ 数值适配处理：持仓收益率传入浮点数（如 0.035 表示 3.5%），匹配飞书的 # 数字/百分比 类型
             fields_data = {
-                "推荐日期": entry_date,
-                "复盘日期": today_str,
+                "复盘日期": today_timestamp,
                 "股票代码": code,
                 "股票名称": str(item.get("name", "")),
-                "策略归属": str(item.get("strategy", "深度量化选股")),
+                "策略归属": str(item.get("strategy", "量化选股")),
                 "建仓价格": entry_p,
                 "最新收盘价": close_p,
-                "持仓收益率": round(total_ret / 100.0, 4),  # 小数形式存入，WPS 格式会自动显示为 %
+                "持仓收益率": round(total_ret / 100.0, 4),  # 浮点数以匹配飞书 # 数字格式
                 "持股天数": days_tracked,
                 "状态": status_str,
-                "止盈目标价": float(item.get("target_price", 0)),
-                "止损价格": float(item.get("stop_loss", 0))
+                "胜负归因": str(item.get("close_reason", "持仓跟踪中"))
             }
 
-            if unique_key in existing_records:
-                # 记录存在，做更新操作
+            if code in existing_records:
                 update_records.append({
-                    "record_id": existing_records[unique_key],
+                    "record_id": existing_records[code],
                     "fields": fields_data
                 })
             else:
-                # 记录不存在，做新增插入
+                fields_data["推荐日期"] = today_timestamp
+                fields_data["TrendIQ评分"] = int(item.get("trend_iq", 80))
                 add_records.append({"fields": fields_data})
 
-        # 3. 发送批量新增或更新请求
+        # 3. 提交至飞书 API
         try:
-            if add_records:
-                res = requests.post(list_records_url, headers=headers, json={"records": add_records}, timeout=10)
-                if res.json().get("code") == 0:
-                    print(f"🎉 成功插入 {len(add_records)} 条新复盘记录至 WPS 多维表格！")
-            
+            # 批量更新已有记录
             if update_records:
-                # WPS 批量更新接口
-                update_url = f"https://open.kdocs.cn/api/v3/ide/files/{WPS_FILE_TOKEN}/tables/records/batch_update"
-                res = requests.post(update_url, headers=headers, json={"records": update_records}, timeout=10)
-                if res.json().get("code") == 0:
-                    print(f"🎉 成功同步更新 {len(update_records)} 条持仓收益/状态至 WPS 多维表格！")
+                batch_update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_update"
+                res_up = requests.post(batch_update_url, headers=headers, json={"records": update_records}, timeout=10)
+                if res_up.json().get("code") == 0:
+                    print(f"🎉 成功同步更新 {len(update_records)} 条持仓复盘数据至飞书多维表格！")
+                else:
+                    print(f"❌ 飞书批量更新失败: {res_up.json()}")
+
+            # 批量插入缺失记录
+            if add_records:
+                batch_create_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
+                res_add = requests.post(batch_create_url, headers=headers, json={"records": add_records}, timeout=10)
+                if res_add.json().get("code") == 0:
+                    print(f"🎉 成功补齐插入 {len(add_records)} 条持仓记录至飞书多维表格！")
+                else:
+                    print(f"❌ 飞书批量插入失败: {res_add.json()}")
+
         except Exception as e:
-            print(f"❌ 同步数据至 WPS 多维表发生异常: {e}")
+            print(f"❌ 同步数据至飞书多维表格发生异常: {e}")
 
     # ==========================================
-    # 🔄 核心晚盘复盘逻辑 (保持原有分析逻辑不变)
+    # 🔄 晚盘核心复盘逻辑
     # ==========================================
     def run_evening_review(self) -> tuple[list, list]:
         tracker = self.load_tracker()
         today_str = datetime.now().strftime("%Y-%m-%d")
 
-        # 🛡️ 筛选出处于跟踪期（未结案）且代码合规的标的
         active_items = [
             item for item in tracker 
             if isinstance(item, dict) 
@@ -223,7 +227,6 @@ class EveningReviewAgent:
         review_logs = []
         message_chunks = []
 
-        # 头部消息切片
         header_chunk = (
             f"🌆 **【晚盘收盘复盘与持仓跟踪】({today_str})**\n"
             f"-----------------------------------\n"
@@ -236,13 +239,11 @@ class EveningReviewAgent:
             name = item.get("name", "未知")
             strategy = item.get("strategy", "深度量化选股")
             
-            # 读取早盘推荐参数（若无记录则兜底取基础设定）
             entry_date = item.get("entry_date", item.get("pick_date", today_str))
             entry_p = float(item.get("entry_price", item.get("buy_price", item.get("pick_price", 0))))
             target_p = float(item.get("target_price", entry_p * 1.08))
             stop_p = float(item.get("stop_loss", entry_p * 0.95))
             
-            # 模拟记录持股天数 (T+N)
             days_tracked = item.get("days_tracked", 0) + 1
             item["days_tracked"] = days_tracked
 
@@ -258,16 +259,15 @@ class EveningReviewAgent:
             close_p = q_info["close"]
             today_chg = q_info["pct"]
             
-            # 📈 核心量化指标计算：持仓收益率 & 收益风险比 (RRR)
             total_ret = round((close_p - entry_p) / entry_p * 100, 2)
             item["current_price"] = close_p
             item["total_return"] = total_ret
 
             risk = max(entry_p - stop_p, 0.01)
             reward = max(target_p - entry_p, 0.01)
-            rrr = round(reward / risk, 2) # 计划盈亏比
+            rrr = round(reward / risk, 2)
 
-            # 🎯 触发式结案诊断
+            # 🎯 离场触发判定
             status_desc = ""
             if close_p <= stop_p:
                 item["status"] = "CLOSED"
@@ -298,12 +298,12 @@ class EveningReviewAgent:
 
             else:
                 item["status"] = "TRACKING"
+                item["close_reason"] = "持仓观察中"
                 status_desc = "🔄 **持仓中 (继续跟踪)**"
 
             ret_sign = f"+{total_ret}%" if total_ret > 0 else f"{total_ret}%"
             today_chg_sign = f"+{today_chg:.2f}%" if today_chg > 0 else f"{today_chg:.2f}%"
 
-            # 🧩 格式化推送卡片切片
             card_chunk = (
                 f"📊 **【复盘卡片】** **{name}** (`{code}`) | `T+{days_tracked}`\n"
                 f"-----------------------------------\n"
@@ -315,21 +315,20 @@ class EveningReviewAgent:
             )
             message_chunks.append(card_chunk)
 
-        # 拼接盘后总结警报切片
         if review_logs:
             alert_chunk = "🚨 **【盘后触发与结案警报】**\n-----------------------------------\n" + "\n".join(review_logs)
             message_chunks.append(alert_chunk)
 
-        # 1. 保存更新数据至本地 JSON 跟踪池
+        # 1. 保存本地跟踪 JSON
         self.save_tracker(tracker)
 
-        # 2. 🆕 同步数据至 WPS 云端多维表格
-        self.sync_to_wps_sheet(active_items)
+        # 2. 🚀 原生同步更新至飞书多维表格
+        self.sync_to_feishu_sheet(active_items)
 
         return active_items, message_chunks
 
     def push_to_wechat(self, message_chunks: list):
-        """分批推送切片，防止触发微信 4096 字符上限限制"""
+        """推送至企业微信”"""
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
         if not wechat_url:
             print("⚠️ 未配置 WECHAT_WEBHOOK，跳过推送。")
