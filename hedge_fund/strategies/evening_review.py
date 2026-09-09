@@ -1,15 +1,15 @@
 """
-Agent 2: 晚盘收盘复盘与持仓跟踪 Agent (Evening Review Agent) - 飞书原生适配升级版
+Agent 2: 晚盘收盘复盘与持仓跟踪 Agent (Evening Review Agent) - 飞书防覆盖/精准对齐升级版
 - 精准读取 morning_picker 生成的持仓池，匹配推荐日期与策略
 - 动态计算持股天数 (T+N)、持仓收益率、盈亏比 (Reward/Risk Ratio)
 - 触发机制：止盈 / 止损 / 10日满期 自动结案
-- 自动更新与同步数据至飞书多维表格 (Feishu Bitable)
+- 自动更新与同步数据至飞书多维表格 (使用 '推荐日期_股票代码' 复合主键防误覆盖)
 """
 
-import os
 import json
-import time
+import os
 import re
+import time
 from datetime import datetime
 import requests
 
@@ -26,11 +26,12 @@ FEISHU_TABLE_ID = os.environ.get("FEISHU_TABLE_ID", "").strip()
 
 
 class EveningReviewAgent:
+
     def __init__(
         self,
         history_file: str = HISTORY_FILE,
         tracker_file: str = TRACKER_FILE,
-        postmortem_file: str = POSTMORTEM_FILE
+        postmortem_file: str = POSTMORTEM_FILE,
     ):
         self.history_file = history_file
         self.tracker_file = tracker_file
@@ -61,11 +62,16 @@ class EveningReviewAgent:
 
     def fetch_closing_quotes(self, stock_codes: list) -> dict:
         """从腾讯 API 获取收盘实时价格与今日动态涨跌幅"""
-        valid_codes = [str(c) for c in stock_codes if re.match(r"^\d{6}$", str(c))]
+        valid_codes = [
+            str(c) for c in stock_codes if re.match(r"^\d{6}$", str(c))
+        ]
         if not valid_codes:
             return {}
 
-        tc_codes = [f"sh{c}" if c.startswith("60") or c.startswith("68") else f"sz{c}" for c in valid_codes]
+        tc_codes = [
+            f"sh{c}" if c.startswith("60") or c.startswith("68") else f"sz{c}"
+            for c in valid_codes
+        ]
         quotes = {}
         try:
             url = f"http://qt.gtimg.cn/q={','.join(tc_codes)}"
@@ -78,18 +84,20 @@ class EveningReviewAgent:
                         if len(fields) > 32:
                             code = fields[2]
                             close_p = float(fields[3]) if fields[3] else 0.0
-                            today_pct = float(fields[32]) if fields[32] else 0.0
+                            today_pct = (
+                                float(fields[32]) if fields[32] else 0.0
+                            )
                             if close_p > 0:
                                 quotes[code] = {
                                     "close": close_p,
-                                    "pct": today_pct
+                                    "pct": today_pct,
                                 }
         except Exception as e:
             print(f"⚠️ 获取收盘行情失败: {e}")
         return quotes
 
     # ==========================================
-    # ⚙️ 飞书多维表格 API 增量同步/更新模块
+    # ⚙️ 飞书多维表格 API 精准更新/增量同步模块
     # ==========================================
     def get_feishu_tenant_token(self) -> str:
         """获取飞书 Tenant Access Token"""
@@ -99,8 +107,11 @@ class EveningReviewAgent:
         try:
             res = requests.post(
                 auth_url,
-                json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
-                timeout=10
+                json={
+                    "app_id": FEISHU_APP_ID,
+                    "app_secret": FEISHU_APP_SECRET,
+                },
+                timeout=10,
             )
             data = res.json()
             if data.get("code") == 0:
@@ -112,7 +123,7 @@ class EveningReviewAgent:
         return ""
 
     def sync_to_feishu_sheet(self, active_items: list):
-        """将晚盘复盘后的收盘价、持仓收益率、持股天数与状态同步更新至飞书多维表格"""
+        """将晚盘复盘后的收盘价、持仓收益率、持股天数与状态精确更新至飞书多维表格"""
         access_token = self.get_feishu_tenant_token()
         if not access_token or not (FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
             print("⚠️ 未配置完整飞书环境变量，跳过多维表格同步。")
@@ -120,34 +131,59 @@ class EveningReviewAgent:
 
         headers = {
             "Content-Type": "application/json; charset=utf-8",
-            "Authorization": f"Bearer {access_token}"
+            "Authorization": f"Bearer {access_token}",
         }
 
-        # 1. 获取现有表格中的记录（提取 record_id 建立映射关系）
+        # 1. 查询飞书现有记录（使用 推荐日期 + 股票代码 作为联合主键映射）
         search_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
         existing_records = {}
         try:
-            res_search = requests.get(search_url, headers=headers, params={"page_size": 200}, timeout=10)
+            res_search = requests.get(
+                search_url,
+                headers=headers,
+                params={"page_size": 200},
+                timeout=10,
+            )
             res_json = res_search.json()
             if res_json.get("code") == 0:
                 recs = res_json.get("data", {}).get("items", [])
                 for r in recs:
                     f = r.get("fields", {})
                     code = str(f.get("股票代码", ""))
-                    # 使用 股票代码 作为主键索引匹配
-                    if code:
-                        existing_records[code] = r.get("record_id")
+                    rec_date_raw = f.get("推荐日期")
+
+                    # 时间戳转 YYYY-MM-DD
+                    if isinstance(rec_date_raw, (int, float)):
+                        rec_date_str = datetime.fromtimestamp(
+                            rec_date_raw / 1000
+                        ).strftime("%Y-%m-%d")
+                    else:
+                        rec_date_str = str(rec_date_raw)
+
+                    # 🛡️ 联合主键，彻底解决多日重复股票误覆盖的问题
+                    if code and rec_date_str:
+                        unique_key = f"{rec_date_str}_{code}"
+                        existing_records[unique_key] = r.get("record_id")
         except Exception as e:
             print(f"⚠️ 查询飞书已有记录失败: {e}")
 
-        # 2. 构建新增与更新 Payload 结构
+        # 2. 构建增量更新与新增 Payload 结构
         add_records = []
         update_records = []
         today_timestamp = int(time.time() * 1000)
+        today_str = datetime.now().strftime("%Y-%m-%d")
 
         for item in active_items:
             code = str(item.get("code", ""))
-            entry_p = float(item.get("entry_price", item.get("buy_price", item.get("pick_price", 0))))
+            entry_date = str(
+                item.get("entry_date", item.get("pick_date", today_str))
+            )
+            entry_p = float(
+                item.get(
+                    "entry_price",
+                    item.get("buy_price", item.get("pick_price", 0)),
+                )
+            )
             close_p = float(item.get("current_price", entry_p))
             total_ret = float(item.get("total_return", 0.0))
             days_tracked = int(item.get("days_tracked", 1))
@@ -156,7 +192,6 @@ class EveningReviewAgent:
             if item.get("status") == "CLOSED":
                 status_str = f"已结案({item.get('close_reason', '离场')})"
 
-            # 🛠️ 数值适配处理：持仓收益率传入浮点数（如 0.035 表示 3.5%），匹配飞书的 # 数字/百分比 类型
             fields_data = {
                 "复盘日期": today_timestamp,
                 "股票代码": code,
@@ -164,39 +199,67 @@ class EveningReviewAgent:
                 "策略归属": str(item.get("strategy", "量化选股")),
                 "建仓价格": entry_p,
                 "最新收盘价": close_p,
-                "持仓收益率": round(total_ret / 100.0, 4),  # 浮点数以匹配飞书 # 数字格式
+                "持仓收益率": round(total_ret / 100.0, 4),  # 匹配百分比格式
                 "持股天数": days_tracked,
                 "状态": status_str,
-                "胜负归因": str(item.get("close_reason", "持仓跟踪中"))
+                "胜负归因": str(item.get("close_reason", "持仓跟踪中")),
             }
 
-            if code in existing_records:
-                update_records.append({
-                    "record_id": existing_records[code],
-                    "fields": fields_data
-                })
+            lookup_key = f"{entry_date}_{code}"
+
+            # 命中精准记录 ID，执行定向 Update
+            if lookup_key in existing_records:
+                update_records.append(
+                    {
+                        "record_id": existing_records[lookup_key],
+                        "fields": fields_data,
+                    }
+                )
             else:
-                fields_data["推荐日期"] = today_timestamp
+                # 若未找到记录（如补录场景），补齐推荐日期并新增
+                try:
+                    entry_dt_ts = int(
+                        time.mktime(
+                            time.strptime(entry_date, "%Y-%m-%d")
+                        )
+                        * 1000
+                    )
+                except Exception:
+                    entry_dt_ts = today_timestamp
+
+                fields_data["推荐日期"] = entry_dt_ts
                 fields_data["TrendIQ评分"] = int(item.get("trend_iq", 80))
                 add_records.append({"fields": fields_data})
 
         # 3. 提交至飞书 API
         try:
-            # 批量更新已有记录
             if update_records:
                 batch_update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_update"
-                res_up = requests.post(batch_update_url, headers=headers, json={"records": update_records}, timeout=10)
+                res_up = requests.post(
+                    batch_update_url,
+                    headers=headers,
+                    json={"records": update_records},
+                    timeout=10,
+                )
                 if res_up.json().get("code") == 0:
-                    print(f"🎉 成功同步更新 {len(update_records)} 条持仓复盘数据至飞书多维表格！")
+                    print(
+                        f"🎉 成功同步更新 {len(update_records)} 条持仓复盘数据至飞书多维表格！"
+                    )
                 else:
                     print(f"❌ 飞书批量更新失败: {res_up.json()}")
 
-            # 批量插入缺失记录
             if add_records:
                 batch_create_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
-                res_add = requests.post(batch_create_url, headers=headers, json={"records": add_records}, timeout=10)
+                res_add = requests.post(
+                    batch_create_url,
+                    headers=headers,
+                    json={"records": add_records},
+                    timeout=10,
+                )
                 if res_add.json().get("code") == 0:
-                    print(f"🎉 成功补齐插入 {len(add_records)} 条持仓记录至飞书多维表格！")
+                    print(
+                        f"🎉 成功补齐插入 {len(add_records)} 条持仓记录至飞书多维表格！"
+                    )
                 else:
                     print(f"❌ 飞书批量插入失败: {res_add.json()}")
 
@@ -211,14 +274,19 @@ class EveningReviewAgent:
         today_str = datetime.now().strftime("%Y-%m-%d")
 
         active_items = [
-            item for item in tracker 
-            if isinstance(item, dict) 
+            item
+            for item in tracker
+            if isinstance(item, dict)
             and item.get("status") in ["TRACKING", "HOLD", "ACTIVE", None]
             and re.match(r"^\d{6}$", str(item.get("code", "")))
         ]
 
         if not active_items:
-            empty_msg = f"🌆 **【晚盘收盘复盘】({today_str})**\n-----------------------------------\n当前无处于活跃观察期的持仓标的。"
+            empty_msg = (
+                f"🌆 **【晚盘收盘复盘】({today_str})**\n"
+                f"-----------------------------------\n"
+                f"当前无处于活跃观察期的持仓标的。"
+            )
             return [], [empty_msg]
 
         active_codes = [item["code"] for item in active_items]
@@ -238,12 +306,19 @@ class EveningReviewAgent:
             code = item["code"]
             name = item.get("name", "未知")
             strategy = item.get("strategy", "深度量化选股")
-            
-            entry_date = item.get("entry_date", item.get("pick_date", today_str))
-            entry_p = float(item.get("entry_price", item.get("buy_price", item.get("pick_price", 0))))
+
+            entry_date = item.get(
+                "entry_date", item.get("pick_date", today_str)
+            )
+            entry_p = float(
+                item.get(
+                    "entry_price",
+                    item.get("buy_price", item.get("pick_price", 0)),
+                )
+            )
             target_p = float(item.get("target_price", entry_p * 1.08))
             stop_p = float(item.get("stop_loss", entry_p * 0.95))
-            
+
             days_tracked = item.get("days_tracked", 0) + 1
             item["days_tracked"] = days_tracked
 
@@ -258,7 +333,7 @@ class EveningReviewAgent:
             q_info = quotes[code]
             close_p = q_info["close"]
             today_chg = q_info["pct"]
-            
+
             total_ret = round((close_p - entry_p) / entry_p * 100, 2)
             item["current_price"] = close_p
             item["total_return"] = total_ret
@@ -302,7 +377,9 @@ class EveningReviewAgent:
                 status_desc = "🔄 **持仓中 (继续跟踪)**"
 
             ret_sign = f"+{total_ret}%" if total_ret > 0 else f"{total_ret}%"
-            today_chg_sign = f"+{today_chg:.2f}%" if today_chg > 0 else f"{today_chg:.2f}%"
+            today_chg_sign = (
+                f"+{today_chg:.2f}%" if today_chg > 0 else f"{today_chg:.2f}%"
+            )
 
             card_chunk = (
                 f"📊 **【复盘卡片】** **{name}** (`{code}`) | `T+{days_tracked}`\n"
@@ -316,19 +393,22 @@ class EveningReviewAgent:
             message_chunks.append(card_chunk)
 
         if review_logs:
-            alert_chunk = "🚨 **【盘后触发与结案警报】**\n-----------------------------------\n" + "\n".join(review_logs)
+            alert_chunk = (
+                "🚨 **【盘后触发与结案警报】**\n-----------------------------------\n"
+                + "\n".join(review_logs)
+            )
             message_chunks.append(alert_chunk)
 
         # 1. 保存本地跟踪 JSON
         self.save_tracker(tracker)
 
-        # 2. 🚀 原生同步更新至飞书多维表格
+        # 2. 🚀 精准同步/更新至飞书多维表格
         self.sync_to_feishu_sheet(active_items)
 
         return active_items, message_chunks
 
     def push_to_wechat(self, message_chunks: list):
-        """推送至企业微信”"""
+        """推送至企业微信"""
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
         if not wechat_url:
             print("⚠️ 未配置 WECHAT_WEBHOOK，跳过推送。")
@@ -339,7 +419,9 @@ class EveningReviewAgent:
             try:
                 res = requests.post(wechat_url, json=payload, timeout=10)
                 if res.json().get("errcode") == 0:
-                    print(f"🎉 第 ({idx}/{len(message_chunks)}) 条晚盘复盘卡片推送成功！")
+                    print(
+                        f"🎉 第 ({idx}/{len(message_chunks)}) 条晚盘复盘卡片推送成功！"
+                    )
             except Exception as e:
                 print(f"❌ 推送失败: {e}")
             time.sleep(1)
