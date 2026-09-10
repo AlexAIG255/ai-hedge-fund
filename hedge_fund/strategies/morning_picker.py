@@ -445,7 +445,7 @@ class MorningStockPickerAgent:
             print(f"❌ 写入 Postmortem 文件失败: {e}")
 
     # ==========================================
-    # 📊 5. 飞书多维表格 API 同步 (含防重复写入)
+    # 📊 5. 飞书多维表格 API 同步 (优化收益率与持仓天数跟踪)
     # ==========================================
     def sync_to_feishu(self, selected_items: List[Dict]):
         if not (
@@ -477,36 +477,58 @@ class MorningStockPickerAgent:
             "Authorization": f"Bearer {access_token}",
         }
 
-        # 防重复写入检查
+        # ----------------------------------------------------
+        # 1. 查询飞书多维表格中的历史记录（获取首次建仓价与日期）
+        # ----------------------------------------------------
+        existing_stocks = {}  # {stock_code: {"first_entry_price": float, "first_entry_date": str}}
         existing_keys = set()
+        
         list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
         try:
-            res_list = requests.get(list_url, headers=headers, params={"page_size": 100}, timeout=10)
+            res_list = requests.get(list_url, headers=headers, params={"page_size": 500}, timeout=10)
             if res_list.status_code == 200:
                 data = res_list.json()
                 items = data.get("data", {}).get("items", [])
                 
+                # 遍历历史数据（按时间先后排序，获取首次推荐数据）
                 for r in items:
                     fields = r.get("fields", {})
-                    rec_code = str(fields.get("股票代码", ""))
+                    rec_code = str(fields.get("股票代码", "")).strip()
                     rec_date_raw = fields.get("推荐日期")
-                    
+                    entry_price_raw = fields.get("建仓价格", 0.0)
+
                     if isinstance(rec_date_raw, (int, float)):
                         rec_date_str = datetime.fromtimestamp(rec_date_raw / 1000).strftime("%Y-%m-%d")
                     else:
                         rec_date_str = str(rec_date_raw)
-                    
+
                     if rec_code:
                         existing_keys.add(f"{rec_date_str}_{rec_code}")
+                        
+                        # 记录该股票的【首次建仓价格】和【首次推荐日期】
+                        if rec_code not in existing_stocks:
+                            try:
+                                entry_p = float(entry_price_raw)
+                            except ValueError:
+                                entry_p = 0.0
+                            
+                            existing_stocks[rec_code] = {
+                                "first_entry_price": entry_p,
+                                "first_entry_date": rec_date_str
+                            }
         except Exception as e:
             print(f"⚠️ 查询飞书历史数据异常: {e}")
 
-        today_timestamp = int(time.time() * 1000)
-        today_ymd_str = time.strftime("%Y-%m-%d")
+        # ----------------------------------------------------
+        # 2. 组装今日写入数据（保持首次建仓价不变，自动计算收益与持仓天数）
+        # ----------------------------------------------------
+        today_dt = datetime.now()
+        today_timestamp = int(today_dt.timestamp() * 1000)
+        today_ymd_str = today_dt.strftime("%Y-%m-%d")
         records = []
 
         for item in selected_items:
-            stock_code = str(item.get("code", ""))
+            stock_code = str(item.get("code", "")).strip()
             unique_key = f"{today_ymd_str}_{stock_code}"
 
             if unique_key in existing_keys:
@@ -514,9 +536,33 @@ class MorningStockPickerAgent:
                 continue
 
             try:
-                pick_price = float(str(item.get("price", "0")).replace("元", ""))
+                curr_price = float(str(item.get("price", "0")).replace("元", ""))
             except ValueError:
-                pick_price = 0.0
+                curr_price = 0.0
+
+            # 判断是否为重复推荐标的（如昊华科技）
+            if stock_code in existing_stocks and existing_stocks[stock_code]["first_entry_price"] > 0:
+                # 保持首次建仓价不变
+                first_entry_price = existing_stocks[stock_code]["first_entry_price"]
+                first_date_str = existing_stocks[stock_code]["first_entry_date"]
+                
+                # 计算持仓天数
+                try:
+                    first_dt = datetime.strptime(first_date_str, "%Y-%m-%d")
+                    days_held = (today_dt - first_dt).days
+                except Exception:
+                    days_held = 0
+            else:
+                # 首次推荐标的
+                first_entry_price = curr_price
+                days_held = 0
+
+            # 计算持仓收益率
+            if first_entry_price > 0:
+                return_rate = ((curr_price - first_entry_price) / first_entry_price) * 100
+                profit_display = f"{return_rate:+.2f}%"
+            else:
+                profit_display = "0.00%"
 
             records.append(
                 {
@@ -526,17 +572,20 @@ class MorningStockPickerAgent:
                         "股票代码": stock_code,
                         "股票名称": str(item.get("name", "")),
                         "策略归属": str(item.get("strategy", "默认策略")),
-                        "建仓价格": pick_price,
-                        "最新收盘价": pick_price,
-                        "持仓收益率": "0%",
-                        "持股天数": 0,
+                        "建仓价格": first_entry_price,      # 锁定第一次建仓价
+                        "最新收盘价": curr_price,            # 更新当前推荐日最新价
+                        "持仓收益率": profit_display,        # 动态计算收益率（如 +1.32%）
+                        "持股天数": days_held,               # 自动计算累计持仓天数
                         "状态": "持仓中",
                         "TrendIQ评分": int(item.get("trend_iq", 80)),
-                        "胜负归因": "建仓观察中",
+                        "胜负归因": "建仓观察中" if days_held == 0 else f"持续推荐持仓第 {days_held} 天",
                     }
                 }
             )
 
+        # ----------------------------------------------------
+        # 3. 批量写入飞书多维表格
+        # ----------------------------------------------------
         if records:
             batch_create_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
             try:
@@ -548,7 +597,7 @@ class MorningStockPickerAgent:
                 )
                 res_data = res.json()
                 if res_data.get("code") == 0:
-                    print(f"🎉 成功同步 {len(records)} 条新记录至飞书多维表格！")
+                    print(f"🎉 成功同步 {len(records)} 条新记录至飞书（已自动计算建仓收益与持股天数）！")
                 else:
                     print(f"❌ 写入飞书失败: {res_data}")
             except Exception as e:
