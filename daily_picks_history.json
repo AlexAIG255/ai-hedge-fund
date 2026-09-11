@@ -1995,31 +1995,55 @@
     ]
   },
   "2026-09-11": {
-    "run_count": 1,
+    "run_count": 2,
     "records": [
+      {
+        "code": "600104",
+        "name": "上汽集团",
+        "strategy": "🚀 右侧突破启动",
+        "pick_price": 11.66,
+        "stop_loss": 11.08,
+        "target_price": 12.59,
+        "entry_range": "11.49~11.72元",
+        "trend_iq": 96,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.57%"
+      },
+      {
+        "code": "600184",
+        "name": "光电股份",
+        "strategy": "🚀 右侧突破启动",
+        "pick_price": 19.4,
+        "stop_loss": 18.43,
+        "target_price": 20.95,
+        "entry_range": "19.11~19.5元",
+        "trend_iq": 99,
+        "risk_stars": 1,
+        "pct_at_pick": "+6.83%"
+      },
       {
         "code": "600032",
         "name": "浙江新能",
-        "strategy": "🚀 右侧突破启动",
-        "pick_price": 7.49,
-        "stop_loss": 7.12,
-        "target_price": 8.09,
-        "entry_range": "7.38~7.53元",
+        "strategy": "🌸 出水芙蓉一阳穿多线",
+        "pick_price": 7.55,
+        "stop_loss": 7.17,
+        "target_price": 8.15,
+        "entry_range": "7.44~7.59元",
         "trend_iq": 99,
-        "risk_stars": 1,
-        "pct_at_pick": "+6.24%"
+        "risk_stars": 2,
+        "pct_at_pick": "+7.09%"
       },
       {
-        "code": "600105",
-        "name": "永鼎股份",
-        "strategy": "🚀 右侧突破启动",
-        "pick_price": 42.09,
-        "stop_loss": 39.99,
-        "target_price": 45.46,
-        "entry_range": "41.46~42.3元",
-        "trend_iq": 96,
-        "risk_stars": 1,
-        "pct_at_pick": "+4.23%"
+        "code": "002218",
+        "name": "拓日新能",
+        "strategy": "🌸 出水芙蓉一阳穿多线",
+        "pick_price": 4.33,
+        "stop_loss": 4.11,
+        "target_price": 4.68,
+        "entry_range": "4.27~4.35元",
+        "trend_iq": 99,
+        "risk_stars": 2,
+        "pct_at_pick": "+7.98%"
       }
     ]
   }
