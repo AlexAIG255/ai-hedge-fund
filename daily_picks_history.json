@@ -1995,19 +1995,19 @@
     ]
   },
   "2026-09-11": {
-    "run_count": 3,
+    "run_count": 4,
     "records": [
       {
         "code": "600032",
         "name": "浙江新能",
         "strategy": "🚀 右侧突破启动",
-        "pick_price": 7.41,
-        "stop_loss": 7.04,
-        "target_price": 8.0,
-        "entry_range": "7.3~7.45元",
+        "pick_price": 7.4,
+        "stop_loss": 7.03,
+        "target_price": 7.99,
+        "entry_range": "7.29~7.44元",
         "trend_iq": 98,
         "risk_stars": 1,
-        "pct_at_pick": "+5.11%"
+        "pct_at_pick": "+4.96%"
       },
       {
         "code": "600104",
@@ -2025,25 +2025,25 @@
         "code": "603226",
         "name": "菲林格尔",
         "strategy": "🌸 出水芙蓉一阳穿多线",
-        "pick_price": 38.9,
-        "stop_loss": 36.95,
-        "target_price": 42.01,
-        "entry_range": "38.32~39.09元",
-        "trend_iq": 96,
+        "pick_price": 38.86,
+        "stop_loss": 36.92,
+        "target_price": 41.97,
+        "entry_range": "38.28~39.05元",
+        "trend_iq": 95,
         "risk_stars": 2,
-        "pct_at_pick": "+7.49%"
+        "pct_at_pick": "+7.38%"
       },
       {
         "code": "603421",
         "name": "鼎信通讯",
         "strategy": "🌸 出水芙蓉一阳穿多线",
-        "pick_price": 7.96,
-        "stop_loss": 7.56,
-        "target_price": 8.6,
-        "entry_range": "7.84~8.0元",
+        "pick_price": 7.97,
+        "stop_loss": 7.57,
+        "target_price": 8.61,
+        "entry_range": "7.85~8.01元",
         "trend_iq": 99,
         "risk_stars": 3,
-        "pct_at_pick": "+9.19%"
+        "pct_at_pick": "+9.33%"
       }
     ]
   }
