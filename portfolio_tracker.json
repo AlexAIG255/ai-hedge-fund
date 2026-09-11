@@ -3961,7 +3961,7 @@
     "entry_price": 15.8,
     "stop_loss": 15.01,
     "target_price": 17.06,
-    "days_tracked": 21,
+    "days_tracked": 22,
     "status": "TRACKING",
     "history": [],
     "current_price": 16.63,
@@ -3976,12 +3976,13 @@
     "entry_price": 15.57,
     "stop_loss": 14.79,
     "target_price": 16.82,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 15.31,
     "total_return": -1.67,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600819",
@@ -3991,7 +3992,7 @@
     "entry_price": 5.98,
     "stop_loss": 5.68,
     "target_price": 6.46,
-    "days_tracked": 21,
+    "days_tracked": 22,
     "status": "TRACKING",
     "history": [],
     "current_price": 5.97,
@@ -4006,7 +4007,7 @@
     "entry_price": 46.33,
     "stop_loss": 44.01,
     "target_price": 50.04,
-    "days_tracked": 21,
+    "days_tracked": 22,
     "status": "TRACKING",
     "history": [],
     "current_price": 46.42,
@@ -4021,12 +4022,13 @@
     "entry_price": 32.61,
     "stop_loss": 30.98,
     "target_price": 35.22,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 32.37,
     "total_return": -0.74,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600367",
@@ -4036,12 +4038,13 @@
     "entry_price": 36.03,
     "stop_loss": 34.23,
     "target_price": 38.91,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 34.99,
     "total_return": -2.89,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600520",
@@ -4083,12 +4086,13 @@
     "entry_price": 13.32,
     "stop_loss": 12.65,
     "target_price": 14.39,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 13.59,
     "total_return": 2.03,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600105",
@@ -4113,12 +4117,13 @@
     "entry_price": 12.64,
     "stop_loss": 12.01,
     "target_price": 13.65,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 12.41,
     "total_return": -1.82,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600576",
@@ -4128,12 +4133,13 @@
     "entry_price": 5.96,
     "stop_loss": 5.66,
     "target_price": 6.44,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 5.93,
     "total_return": -0.5,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "000822",
@@ -4143,7 +4149,7 @@
     "entry_price": 4.6,
     "stop_loss": 4.37,
     "target_price": 4.97,
-    "days_tracked": 21,
+    "days_tracked": 22,
     "status": "TRACKING",
     "history": [],
     "current_price": 4.66,
@@ -4158,7 +4164,7 @@
     "entry_price": 38.33,
     "stop_loss": 36.41,
     "target_price": 41.4,
-    "days_tracked": 21,
+    "days_tracked": 22,
     "status": "TRACKING",
     "history": [],
     "current_price": 39.53,
@@ -4189,7 +4195,7 @@
     "entry_price": 2.53,
     "stop_loss": 2.4,
     "target_price": 2.73,
-    "days_tracked": 21,
+    "days_tracked": 22,
     "status": "TRACKING",
     "history": [],
     "current_price": 2.69,
@@ -4220,12 +4226,13 @@
     "entry_price": 19.95,
     "stop_loss": 18.95,
     "target_price": 21.55,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 19.77,
     "total_return": -0.9,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600737",
@@ -4251,12 +4258,13 @@
     "entry_price": 14.71,
     "stop_loss": 13.97,
     "target_price": 15.89,
-    "days_tracked": 21,
-    "status": "TRACKING",
+    "days_tracked": 22,
+    "status": "LOSS",
     "history": [],
     "current_price": 14.55,
     "total_return": -1.09,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "000905",
@@ -4266,7 +4274,7 @@
     "entry_price": 9.09,
     "stop_loss": 8.64,
     "target_price": 9.82,
-    "days_tracked": 21,
+    "days_tracked": 22,
     "status": "TRACKING",
     "history": [],
     "current_price": 9.43,
@@ -4281,12 +4289,13 @@
     "entry_price": 31.69,
     "stop_loss": 30.11,
     "target_price": 34.23,
-    "days_tracked": 19,
-    "status": "TRACKING",
+    "days_tracked": 20,
+    "status": "LOSS",
     "history": [],
     "current_price": 31.62,
     "total_return": -0.22,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600301",
@@ -4296,12 +4305,13 @@
     "entry_price": 46.14,
     "stop_loss": 43.83,
     "target_price": 49.83,
-    "days_tracked": 19,
-    "status": "TRACKING",
+    "days_tracked": 20,
+    "status": "LOSS",
     "history": [],
     "current_price": 47.45,
     "total_return": 2.84,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600356",
@@ -4311,7 +4321,7 @@
     "entry_price": 9.39,
     "stop_loss": 8.92,
     "target_price": 10.14,
-    "days_tracked": 19,
+    "days_tracked": 20,
     "status": "TRACKING",
     "history": [],
     "current_price": 9.35,
@@ -4326,12 +4336,13 @@
     "entry_price": 31.77,
     "stop_loss": 30.18,
     "target_price": 34.31,
-    "days_tracked": 19,
-    "status": "TRACKING",
+    "days_tracked": 20,
+    "status": "LOSS",
     "history": [],
     "current_price": 31.5,
     "total_return": -0.85,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600165",
@@ -4341,7 +4352,7 @@
     "entry_price": 3.31,
     "stop_loss": 3.14,
     "target_price": 3.57,
-    "days_tracked": 19,
+    "days_tracked": 20,
     "status": "TRACKING",
     "history": [],
     "current_price": 3.25,
@@ -4356,7 +4367,7 @@
     "entry_price": 34.96,
     "stop_loss": 33.21,
     "target_price": 37.76,
-    "days_tracked": 19,
+    "days_tracked": 20,
     "status": "TRACKING",
     "history": [],
     "current_price": 34.99,
@@ -4371,12 +4382,13 @@
     "entry_price": 11.08,
     "stop_loss": 10.53,
     "target_price": 11.97,
-    "days_tracked": 19,
-    "status": "TRACKING",
+    "days_tracked": 20,
+    "status": "LOSS",
     "history": [],
     "current_price": 11.13,
     "total_return": 0.45,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600251",
@@ -4386,12 +4398,13 @@
     "entry_price": 11.93,
     "stop_loss": 11.33,
     "target_price": 12.88,
-    "days_tracked": 19,
-    "status": "TRACKING",
+    "days_tracked": 20,
+    "status": "LOSS",
     "history": [],
     "current_price": 12.05,
     "total_return": 1.01,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600191",
@@ -4433,12 +4446,13 @@
     "entry_price": 6.99,
     "stop_loss": 6.64,
     "target_price": 7.55,
-    "days_tracked": 19,
-    "status": "TRACKING",
+    "days_tracked": 20,
+    "status": "LOSS",
     "history": [],
     "current_price": 6.91,
     "total_return": -1.14,
-    "close_reason": "持仓观察中"
+    "close_reason": "持仓观察中",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "603459",
@@ -4448,7 +4462,7 @@
     "entry_price": 88.85,
     "stop_loss": 84.41,
     "target_price": 95.96,
-    "days_tracked": 17,
+    "days_tracked": 18,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 88.02,
@@ -4463,7 +4477,7 @@
     "entry_price": 16.65,
     "stop_loss": 15.82,
     "target_price": 17.98,
-    "days_tracked": 17,
+    "days_tracked": 18,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 16.48,
@@ -4478,7 +4492,7 @@
     "entry_price": 20.64,
     "stop_loss": 19.61,
     "target_price": 22.29,
-    "days_tracked": 17,
+    "days_tracked": 18,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 21.43,
@@ -4493,7 +4507,7 @@
     "entry_price": 42.25,
     "stop_loss": 40.14,
     "target_price": 45.63,
-    "days_tracked": 17,
+    "days_tracked": 18,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 42.67,
@@ -4508,7 +4522,7 @@
     "entry_price": 2.88,
     "stop_loss": 2.74,
     "target_price": 3.11,
-    "days_tracked": 17,
+    "days_tracked": 18,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 2.92,
@@ -4523,7 +4537,7 @@
     "entry_price": 26.69,
     "stop_loss": 25.36,
     "target_price": 28.83,
-    "days_tracked": 16,
+    "days_tracked": 17,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 26.45,
@@ -4538,9 +4552,9 @@
     "entry_price": 51.07,
     "stop_loss": 48.52,
     "target_price": 55.16,
-    "days_tracked": 16,
-    "status": "TRACKING",
-    "reason": "观察中",
+    "days_tracked": 17,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压",
     "current_price": 50.08,
     "total_return": -1.94,
     "close_reason": "持仓观察中"
@@ -4568,7 +4582,7 @@
     "entry_price": 6.32,
     "stop_loss": 6.0,
     "target_price": 6.83,
-    "days_tracked": 16,
+    "days_tracked": 17,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 6.35,
@@ -4583,7 +4597,7 @@
     "entry_price": 19.37,
     "stop_loss": 18.4,
     "target_price": 20.92,
-    "days_tracked": 15,
+    "days_tracked": 16,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 19.31,
@@ -4598,9 +4612,9 @@
     "entry_price": 10.18,
     "stop_loss": 9.67,
     "target_price": 10.99,
-    "days_tracked": 14,
-    "status": "TRACKING",
-    "reason": "观察中",
+    "days_tracked": 15,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压",
     "current_price": 10.02,
     "total_return": -1.57,
     "close_reason": "持仓观察中"
@@ -4613,7 +4627,7 @@
     "entry_price": 41.27,
     "stop_loss": 39.21,
     "target_price": 44.57,
-    "days_tracked": 13,
+    "days_tracked": 14,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 41.48,
@@ -4628,7 +4642,7 @@
     "entry_price": 5.38,
     "stop_loss": 5.11,
     "target_price": 5.81,
-    "days_tracked": 13,
+    "days_tracked": 14,
     "status": "TRACKING",
     "reason": "观察中",
     "current_price": 5.4,
@@ -4643,9 +4657,9 @@
     "entry_price": 48.43,
     "stop_loss": 46.01,
     "target_price": 52.3,
-    "days_tracked": 5,
-    "status": "TRACKING",
-    "reason": "观察中"
+    "days_tracked": 6,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600113",
@@ -4655,9 +4669,9 @@
     "entry_price": 34.14,
     "stop_loss": 32.43,
     "target_price": 36.87,
-    "days_tracked": 4,
-    "status": "TRACKING",
-    "reason": "观察中"
+    "days_tracked": 5,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600121",
@@ -4679,9 +4693,9 @@
     "entry_price": 12.49,
     "stop_loss": 11.87,
     "target_price": 13.49,
-    "days_tracked": 4,
-    "status": "TRACKING",
-    "reason": "观察中"
+    "days_tracked": 5,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "002457",
@@ -4691,9 +4705,9 @@
     "entry_price": 12.98,
     "stop_loss": 12.33,
     "target_price": 14.02,
-    "days_tracked": 4,
-    "status": "TRACKING",
-    "reason": "观察中"
+    "days_tracked": 5,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600101",
@@ -4703,7 +4717,7 @@
     "entry_price": 8.31,
     "stop_loss": 7.89,
     "target_price": 8.97,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "reason": "观察中"
   },
@@ -4715,7 +4729,7 @@
     "entry_price": 9.85,
     "stop_loss": 9.36,
     "target_price": 10.64,
-    "days_tracked": 3,
+    "days_tracked": 4,
     "status": "TRACKING",
     "reason": "观察中"
   },
@@ -4727,9 +4741,9 @@
     "entry_price": 17.56,
     "stop_loss": 16.68,
     "target_price": 18.96,
-    "days_tracked": 3,
-    "status": "TRACKING",
-    "reason": "观察中"
+    "days_tracked": 4,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
   },
   {
     "code": "600812",
@@ -4739,7 +4753,19 @@
     "entry_price": 5.18,
     "stop_loss": 4.92,
     "target_price": 5.59,
-    "days_tracked": 1,
+    "days_tracked": 2,
+    "status": "LOSS",
+    "reason": "触及止损: 遇大盘回调或板块资金挤压"
+  },
+  {
+    "code": "600032",
+    "name": "浙江新能",
+    "strategy": "🚀 右侧突破启动",
+    "entry_date": "2026-09-11",
+    "entry_price": 7.49,
+    "stop_loss": 7.12,
+    "target_price": 8.09,
+    "days_tracked": 0,
     "status": "TRACKING",
     "reason": "观察中"
   }

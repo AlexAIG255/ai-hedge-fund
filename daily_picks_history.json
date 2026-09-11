@@ -1993,5 +1993,34 @@
         "pct_at_pick": "+7.92%"
       }
     ]
+  },
+  "2026-09-11": {
+    "run_count": 1,
+    "records": [
+      {
+        "code": "600032",
+        "name": "浙江新能",
+        "strategy": "🚀 右侧突破启动",
+        "pick_price": 7.49,
+        "stop_loss": 7.12,
+        "target_price": 8.09,
+        "entry_range": "7.38~7.53元",
+        "trend_iq": 99,
+        "risk_stars": 1,
+        "pct_at_pick": "+6.24%"
+      },
+      {
+        "code": "600105",
+        "name": "永鼎股份",
+        "strategy": "🚀 右侧突破启动",
+        "pick_price": 42.09,
+        "stop_loss": 39.99,
+        "target_price": 45.46,
+        "entry_range": "41.46~42.3元",
+        "trend_iq": 96,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.23%"
+      }
+    ]
   }
 }
