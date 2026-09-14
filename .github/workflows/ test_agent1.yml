@@ -1,4 +1,4 @@
-name: 🧪 Agent 1 (早盘选股 & 企微直推 & 跟踪复盘)
+name: 🧪 Agent 1 (早盘选股 & 企微直推 & 跟踪复盘 & Bottom-Reversal策略桶)
 
 on:
   workflow_dispatch: # 支持网页端手动点击运行
@@ -35,7 +35,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: 4. 执行选股与推送
+      - name: 4. 执行选股与推送 (含 BOTTOM_REVERSAL 策略桶)
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
           DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
@@ -45,6 +45,9 @@ jobs:
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
           FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
+          # 🧪 BOTTOM_REVERSAL 策略桶参数配置
+          ENABLE_BOTTOM_REVERSAL: "true"
+          MAX_PCT_LIMIT: "5.0"
         run: |
           python hedge_fund/strategies/morning_picker.py
 
@@ -54,13 +57,13 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
 
-          # 暂存需要保存的数据文件（支持根目录或策略目录）
-          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
+          # 暂存需要保存的数据文件（覆盖根目录与策略子目录）
+          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md hedge_fund/strategies/daily_picks_history.json hedge_fund/strategies/portfolio_tracker.json hedge_fund/strategies/skills_postmortem.md || true
 
           # 检查是否有文件改动，若有改动则提交并安全 Push
           if ! git diff --staged --quiet; then
-            echo "发现数据更新，准备提交至 GitHub..."
-            git commit -m "Auto-Update: 保存选股历史与建仓跟踪数据 [skip ci]"
+            echo "发现选股历史/跟踪池/技能库数据更新，准备提交至 GitHub..."
+            git commit -m "Auto-Update: 保存 Bottom-Reversal 及选股历史/建仓跟踪数据 [skip ci]"
             
             # 💡 强壮的 Git 拉取与变基合并逻辑，防止冲突中断
             git pull origin main --rebase || (git rebase --abort && git reset --hard origin/main && git pull origin main)
