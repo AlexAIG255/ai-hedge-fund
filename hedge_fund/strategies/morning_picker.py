@@ -1,7 +1,7 @@
 """
-Agent 1: 大盘早晚选股 Agent - 6大全策略选股模型集成 & 飞书防重复写入 & 5-45日长周期跟踪与 Skill 自动升级版
-集成了全量 A 股抓取（5000+只）、6大核心量化选股（右侧启动/超跌反弹/出水芙蓉/买在无人问津处/多头向上的圆月线/超跌反包强势）、
-5-45日跟踪复盘、飞书数据类型精准对齐、飞书当天重复写入拦截、胜负归因分析与 Skill 策略自迭代能力。
+Agent 1: 大盘早晚选股 Agent - 7大全策略选股模型集成 & 飞书防重复写入 & 5-45日长周期跟踪与 Skill 自动升级版
+集成了全量 A 股抓取（5000+只）、7大核心量化选股（右侧启动/超跌反弹/出水芙蓉/买在无人问津处/多头向上的圆月线/超跌反包强势/底部放量反转）、
+严格控制涨幅 <= 5% 防追高、5-45日跟踪复盘、飞书数据类型精准对齐、飞书当天重复写入拦截、胜负归因分析与 Skill 策略自迭代能力。
 """
 
 import json
@@ -136,7 +136,7 @@ class MorningStockPickerAgent:
         self.save_history(history)
 
     # ==========================================
-    # 📐 2. TrendIQ 智能评分
+    # 📐 2. TrendIQ 智能评分 (防追高优化：涨幅>5%扣分加风控)
     # ==========================================
     def calculate_trend_iq_and_risk(
         self,
@@ -151,7 +151,9 @@ class MorningStockPickerAgent:
             risk_stars += 1
         if turnover_val > 22.0 or abs(pct_60d_val) > 50.0:
             risk_stars += 1
-        if pct_val < -3.0 or pct_val > 7.0:
+        
+        # 🔒 【风控修改】涨幅控制在 5.0% 以内，超过 5.0% 或小于 -3.0% 增加风控星级
+        if pct_val < -3.0 or pct_val > 5.0:
             risk_stars += 1
         if price_val < 3.0:
             risk_stars += 1
@@ -195,7 +197,7 @@ class MorningStockPickerAgent:
         }
 
     # ==========================================
-    # 🌙 3. 多策略选股模型算子库 (补全 6 大策略)
+    # 🌙 3. 多策略选股模型算子库 (全量 7 大策略集成 & 涨幅<=5%防追高)
     # ==========================================
     def evaluate_all_strategies(
         self,
@@ -221,6 +223,10 @@ class MorningStockPickerAgent:
         pct_60d_val: float,
     ) -> Tuple[str, str, bool]:
 
+        # 🔒 【核心防追高控制】：所有买入策略的当日涨幅必须限制在 -3.0% ~ 5.0% 之间
+        if pct_val > 5.0 or pct_val < -3.0:
+            return "OVER_LIMIT", "涨幅超标或深跌规避", False
+
         # 0. 基础熊区避险
         if c < ma55 and ma21 < ma55 and pct_val < 0:
             return "BEAR_ZONE", "熊区规避", False
@@ -228,35 +234,44 @@ class MorningStockPickerAgent:
         ma21_up = ma21 >= prev_ma21
         ma55_up = ma55 >= prev_ma55
 
-        # 策略 1: 🌙 多头向上的圆月线
+        # 策略 1: 🔥 底部放量反转 (新增：针对类似天通股份探底大阳线反弹/交叉突破形态)
         if (
-            ma3 > ma12 > ma21 > ma55
+            (pct_60d_val <= -18.0 or avg_bias <= -8.0)
+            and c > o
+            and c >= ma5
+            and vol_ratio_val >= 1.3
+            and 1.5 <= pct_val <= 5.0
+        ):
+            return "BOTTOM_REVERSAL", "🔥 底部放量反转", True
+
+        # 策略 2: 🌙 多头向上的圆月线
+        if (
+            ma3 > ma12 > ma21
             and ma21_up
-            and ma55_up
             and c > ma3
-            and pct_val >= 1.5
+            and 1.0 <= pct_val <= 5.0
         ):
             return "STRONG_YUANYUE", "🌙 多头向上的圆月线", True
 
-        # 策略 2: 🚀 右侧启动
+        # 策略 3: 🚀 右侧突破启动
         if (
             prev_c <= prev_ma21
             and c > ma21
             and ma3 > ma5
-            and vol_ratio_val >= 1.5
-            and 2.0 <= pct_val <= 7.0
+            and vol_ratio_val >= 1.3
+            and 1.5 <= pct_val <= 5.0
         ):
             return "RIGHT_SIDE_LAUNCH", "🚀 右侧突破启动", True
 
-        # 策略 3: 🌸 出水芙蓉
+        # 策略 4: 🌸 出水芙蓉一阳穿多线
         cross_count = sum([
             1 for ma in [ma5, ma12, ma21, ma55]
             if o < ma and c > ma
         ])
-        if cross_count >= 3 and pct_val >= 3.5 and vol_ratio_val >= 1.8:
+        if cross_count >= 3 and 2.0 <= pct_val <= 5.0 and vol_ratio_val >= 1.5:
             return "LOTUS_BREAKOUT", "🌸 出水芙蓉一阳穿多线", True
 
-        # 策略 4: 🔥 超跌反包强势
+        # 策略 5: 🔥 超跌反包强势
         is_prev_bear = prev_c < prev_o
         is_today_bull = c > o
         is_engulfing = (c >= prev_o) and (o <= prev_c)
@@ -265,28 +280,26 @@ class MorningStockPickerAgent:
             is_prev_bear
             and is_today_bull
             and is_engulfing
-            and pct_val >= 3.0
-            and vol_ratio_val >= 1.3
+            and 2.0 <= pct_val <= 5.0
+            and vol_ratio_val >= 1.2
         ):
             return "OVERSOLD_ENGULFING", "🔥 超跌反包强势", True
 
-        # 策略 5: 📉 超跌反弹
+        # 策略 6: 📉 极值超跌反弹
         if (
-            (avg_bias <= -15.0 or pct_60d_val <= -25.0)
-            and prev_ma3 <= prev_ma5
+            (avg_bias <= -12.0 or pct_60d_val <= -20.0)
             and ma3 > ma5
-            and pct_val >= 1.0
+            and 0.8 <= pct_val <= 4.5
         ):
             return "OVERSOLD_BOUNCE", "📉 极值超跌反弹", True
 
-        # 策略 6: 🍃 买在无人问津处
-        is_shrink_vol = turnover_val < 3.5 and vol_ratio_val < 0.8
+        # 策略 7: 🍃 买在无人问津处
+        is_shrink_vol = turnover_val < 3.5 and vol_ratio_val < 0.9
         if (
             ma21_up
-            and ma55_up
             and (ma21 <= c <= ma12)
             and is_shrink_vol
-            and -1.5 <= pct_val <= 1.5
+            and -1.0 <= pct_val <= 3.0
         ):
             return "DESERTED_LOW_BUY", "🍃 买在无人问津处", True
 
@@ -443,6 +456,7 @@ class MorningStockPickerAgent:
             print("📝 【Skill 智能迭代日志】已更新保存！")
         except Exception as e:
             print(f"❌ 写入 Postmortem 文件失败: {e}")
+
     # ==========================================
     # 📊 5. 飞书多维表格 API 同步 (早盘实时价建仓 + 动态收益对比)
     # ==========================================
@@ -479,7 +493,7 @@ class MorningStockPickerAgent:
         # ----------------------------------------------------
         # 1. 查询飞书历史记录（查找该股票历史【首次建仓实时价】与【首次推荐日期】）
         # ----------------------------------------------------
-        existing_stocks = {}  # {stock_code: {"first_entry_price": float, "first_entry_date": str}}
+        existing_stocks = {}
         existing_keys = set()
         
         list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
@@ -503,7 +517,6 @@ class MorningStockPickerAgent:
                     if rec_code:
                         existing_keys.add(f"{rec_date_str}_{rec_code}")
                         
-                        # 记录该股票的历史首次建仓价格与推荐时间
                         if rec_code not in existing_stocks:
                             try:
                                 entry_p = float(entry_price_raw)
@@ -518,7 +531,7 @@ class MorningStockPickerAgent:
             print(f"⚠️ 查询飞书历史数据异常: {e}")
 
         # ----------------------------------------------------
-        # 2. 组装今日写入记录（早盘选股：采用推荐时点的【实时价格】）
+        # 2. 组装今日写入记录
         # ----------------------------------------------------
         today_dt = datetime.now()
         today_timestamp = int(today_dt.timestamp() * 1000)
@@ -534,28 +547,23 @@ class MorningStockPickerAgent:
                 continue
 
             try:
-                # 触发推荐时的【实时价格】
                 realtime_price = float(str(item.get("price", "0")).replace("元", ""))
             except ValueError:
                 realtime_price = 0.0
 
-            # 如果该股票历史已出现过（如昊华科技第二次/多次推荐）
             if stock_code in existing_stocks and existing_stocks[stock_code]["first_entry_price"] > 0:
-                first_entry_price = existing_stocks[stock_code]["first_entry_price"]  # 锁定第一次建仓的实时价
+                first_entry_price = existing_stocks[stock_code]["first_entry_price"]
                 first_date_str = existing_stocks[stock_code]["first_entry_date"]
                 
-                # 计算持仓天数
                 try:
                     first_dt = datetime.strptime(first_date_str, "%Y-%m-%d")
                     days_held = (today_dt - first_dt).days
                 except Exception:
                     days_held = 0
             else:
-                # 第一次推荐：建仓价格 = 当下选股时的【实时成交价】
                 first_entry_price = realtime_price
                 days_held = 0
 
-            # 计算相比首次建仓价的动态浮动收益率
             if first_entry_price > 0:
                 return_rate = ((realtime_price - first_entry_price) / first_entry_price) * 100
                 profit_display = f"{return_rate:+.2f}%"
@@ -570,10 +578,10 @@ class MorningStockPickerAgent:
                         "股票代码": stock_code,
                         "股票名称": str(item.get("name", "")),
                         "策略归属": str(item.get("strategy", "默认策略")),
-                        "建仓价格": first_entry_price,       # 固定：第一次推荐时的【实时成交价】
-                        "最新收盘价": realtime_price,         # 早盘为【实时价】，晚间复盘脚本会更新为【收盘价】
-                        "持仓收益率": profit_display,         # (最新价 - 首次建仓价) / 首次建仓价
-                        "持股天数": days_held,                # 自动计算持股累计天数
+                        "建仓价格": first_entry_price,
+                        "最新收盘价": realtime_price,
+                        "持仓收益率": profit_display,
+                        "持股天数": days_held,
                         "状态": "持仓中",
                         "TrendIQ评分": int(item.get("trend_iq", 80)),
                         "胜负归因": "建仓观察中" if days_held == 0 else f"持仓第 {days_held} 天 (早盘选股实时跟踪)",
@@ -801,7 +809,7 @@ class MorningStockPickerAgent:
         return items_list
 
     # ==========================================
-    # 📊 7. 核心策略选股引擎
+    # 📊 7. 核心策略选股引擎 (更新为 7 大策略桶与优化过滤)
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
         self.run_postmortem_and_upgrade_skill()
@@ -812,6 +820,7 @@ class MorningStockPickerAgent:
 
         is_market_healthy = self.check_market_sentiment()
 
+        # 🎯 包含新增“BOTTOM_REVERSAL”在内的 7 大策略分类桶
         strategy_buckets = {
             "RIGHT_SIDE_LAUNCH": [],
             "OVERSOLD_BOUNCE": [],
@@ -819,6 +828,7 @@ class MorningStockPickerAgent:
             "DESERTED_LOW_BUY": [],
             "STRONG_YUANYUE": [],
             "OVERSOLD_ENGULFING": [],
+            "BOTTOM_REVERSAL": [],  # 🆕 底部放量反转桶
         }
 
         for item in raw_diff:
@@ -840,7 +850,8 @@ class MorningStockPickerAgent:
                 vol_ratio_val = float(vol_ratio) if vol_ratio != "-" else 0.0
                 pct_60d_val = float(pct_60d) if pct_60d != "-" else 0.0
 
-                if pct_val < -8.0 or pct_val > 9.8:
+                # 🔒 【防追高风控门槛】：大于 5.0% 或小于 -3.0% 直接跳过
+                if pct_val < -3.0 or pct_val > 5.0:
                     continue
 
                 eval_res = self.calculate_trend_iq_and_risk(
@@ -900,18 +911,24 @@ class MorningStockPickerAgent:
             except ValueError:
                 continue
 
+        # ----------------------------------------------------
+        # 优化提炼：多策略融合汇总，打破单一策略垄断
+        # ----------------------------------------------------
         candidate_items = []
         for strat_key, items in strategy_buckets.items():
-            candidate_items.extend(items[:2])
+            candidate_items.extend(items[:2])  # 每个策略取前 2 个高质量个股
 
         if not candidate_items:
-            print("⚠️ 未发现符合 TrendIQ>=80 及 6 大选股策略的标的。")
+            print("⚠️ 未发现符合 TrendIQ>=80 及 7 大选股策略的标的。")
             return [], [], ""
 
         candidate_items = self.calibrate_items(candidate_items)
         candidate_items = [
             i for i in candidate_items if i.get("trend_iq", 0) >= 80
         ]
+
+        # 降序排列并精准锁定前 6~8 只最优质标的
+        candidate_items = sorted(candidate_items, key=lambda x: x.get("trend_iq", 0), reverse=True)[:8]
 
         final_items, history_data = self.filter_three_day_duplicates(
             candidate_items
@@ -1007,7 +1024,7 @@ class MorningStockPickerAgent:
 def main():
     agent = MorningStockPickerAgent()
     print("==================================================")
-    print("🚀 Agent 1 [早盘选股 Agent] 启动，6 大全策略搜寻中...")
+    print("🚀 Agent 1 [早盘选股 Agent] 启动，7 大全策略搜寻中...")
     print("==================================================")
 
     today_str = time.strftime("%Y-%m-%d")
