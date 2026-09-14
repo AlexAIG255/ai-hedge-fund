@@ -9,6 +9,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: quant-workflow-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   morning-picker:
     name: Run Morning Stock Picker
@@ -16,28 +20,40 @@ jobs:
     if: github.event.schedule == '40 1 * * 1-5' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - name: Install Dependencies
         run: pip install requests
+
       - name: Run Morning Picker
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
           FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
+          # 🧪 策略桶与风控参数
+          ENABLE_BOTTOM_REVERSAL: "true"
+          MAX_PCT_LIMIT: "5.0"
+          MANUAL_TEST: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: python hedge_fund/strategies/morning_picker.py
 
       - name: Commit and Push Pick History
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
-          git commit -m "Auto-save morning picks history [skip ci]" || exit 0
-          git pull --rebase origin main
-          git push origin main
+          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md hedge_fund/strategies/daily_picks_history.json hedge_fund/strategies/portfolio_tracker.json hedge_fund/strategies/skills_postmortem.md || true
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-save morning picks history [skip ci]"
+            git pull --rebase origin main || (git rebase --abort && git reset --hard origin/main && git pull origin main)
+            git push origin HEAD:main
+          fi
 
   evening-review:
     name: Run Evening Review
@@ -45,25 +61,37 @@ jobs:
     if: github.event.schedule == '0 10 * * 1-5' || github.event_name == 'workflow_dispatch'
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.10'
+
       - name: Install Dependencies
         run: pip install requests
+
       - name: Run Evening Review
         env:
           WECHAT_WEBHOOK: ${{ secrets.WECHAT_WEBHOOK }}
+          DIFY_API_KEY: ${{ secrets.DIFY_API_KEY }}
           FEISHU_APP_ID: ${{ secrets.FEISHU_APP_ID }}
           FEISHU_APP_SECRET: ${{ secrets.FEISHU_APP_SECRET }}
           FEISHU_APP_TOKEN: ${{ secrets.FEISHU_APP_TOKEN }}
           FEISHU_TABLE_ID: ${{ secrets.FEISHU_TABLE_ID }}
+          # 🧪 策略桶与风控同步配置（保证晚间复盘归因基准一致）
+          ENABLE_BOTTOM_REVERSAL: "true"
+          MAX_PCT_LIMIT: "5.0"
+          MANUAL_TEST: ${{ github.event_name == 'workflow_dispatch' && 'true' || 'false' }}
         run: python hedge_fund/strategies/evening_review.py
 
       - name: Commit and Push Evening Review Changes
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md || true
-          git commit -m "Auto-save evening review logs [skip ci]" || exit 0
-          git pull --rebase origin main
-          git push origin main
+          git add daily_picks_history.json portfolio_tracker.json skills_postmortem.md hedge_fund/strategies/daily_picks_history.json hedge_fund/strategies/portfolio_tracker.json hedge_fund/strategies/skills_postmortem.md || true
+          if ! git diff --staged --quiet; then
+            git commit -m "Auto-save evening review logs & postmortem [skip ci]"
+            git pull --rebase origin main || (git rebase --abort && git reset --hard origin/main && git pull origin main)
+            git push origin HEAD:main
+          fi
