@@ -1,33 +1,23 @@
 """
-Agent 1: 大盘早晚选股 Agent - 7大全策略选股模型集成 & 飞书防重复写入 & 5-45日长周期跟踪与 Skill 自动升级版
+Agent 1: 大盘早晚选股 Agent - 7大全策略选股模型集成 & 联动 Agent 3 动态风控过滤
 集成了全量 A 股抓取（5000+只）、7大核心量化选股（右侧启动/超跌反弹/出水芙蓉/买在无人问津处/多头向上的圆月线/超跌反包强势/底部放量反转）、
-严格控制涨幅 <= 5% 防追高、5-45日跟踪复盘、飞书数据类型精准对齐、飞书当天重复写入拦截、胜负归因分析与 Skill 策略自迭代能力。
+严格控制涨幅 <= 5% 防追高、嵌入 Agent 3 (Risk Manager) 全球宏观风控与动态 ATR 止盈止损。
 """
-# 在 morning_picker.py 头部引入
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from risk.risk_manager import RiskManagerAgent
-
-# ... 在 morning_picker 执行选股逻辑后 ...
-
-def run_morning_picker():
-    raw_candidates = get_raw_stock_candidates() # 假设获取到了早盘初步选股列表
-    
-    # 🛡️ 调用 Agent 3 进行全球风控与定价过滤
-    risk_agent = RiskManagerAgent()
-    approved_candidates, global_env = risk_agent.process_candidate_stocks(raw_candidates)
-    
-    # 后续企微推送、飞书多维表格回写仅使用 approved_candidates
-    push_to_feishu_and_wechat(approved_candidates, global_env)
 
 import json
 import os
+import sys
 import time
 from datetime import datetime
 from typing import Dict, List, Tuple
 import requests
+
+# 🔗 引入风控 Agent 模块
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from risk.risk_manager import RiskManagerAgent
+except ImportError:
+    RiskManagerAgent = None
 
 # 🔒 Dify Chatflow 对话接口配置
 DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
@@ -59,6 +49,7 @@ class MorningStockPickerAgent:
         self.history_file = history_file
         self.tracker_file = tracker_file
         self.postmortem_file = postmortem_file
+        self.risk_agent = RiskManagerAgent() if RiskManagerAgent else None
 
     # ==========================================
     # 🧠 1. 历史记录与去重去频模块
@@ -130,8 +121,8 @@ class MorningStockPickerAgent:
             except ValueError:
                 pick_price = 0.0
 
-            stop_loss = item.get("raw_stop_loss", round(pick_price * 0.95, 2))
-            target_price = item.get("raw_target", round(pick_price * 1.08, 2))
+            stop_loss = item.get("stop_loss", round(pick_price * 0.95, 2))
+            target_price = item.get("target_price", round(pick_price * 1.08, 2))
 
             today_records.append(
                 {
@@ -141,6 +132,7 @@ class MorningStockPickerAgent:
                     "pick_price": pick_price,
                     "stop_loss": stop_loss,
                     "target_price": target_price,
+                    "suggested_pos": item.get("suggested_pos", "10.0%"),
                     "entry_range": item.get(
                         "entry_range", f"{pick_price}~{pick_price}元"
                     ),
@@ -169,8 +161,7 @@ class MorningStockPickerAgent:
             risk_stars += 1
         if turnover_val > 22.0 or abs(pct_60d_val) > 50.0:
             risk_stars += 1
-        
-        # 🔒 【风控修改】涨幅控制在 5.0% 以内，超过 5.0% 或小于 -3.0% 增加风控星级
+
         if pct_val < -3.0 or pct_val > 5.0:
             risk_stars += 1
         if price_val < 3.0:
@@ -189,8 +180,6 @@ class MorningStockPickerAgent:
 
         entry_low = round(price_val * 0.985, 2)
         entry_high = round(price_val * 1.005, 2)
-        stop_loss = round(price_val * 0.95, 2)
-        target_price = round(price_val * 1.08, 2)
 
         diagnosis_text = (
             f"📊 **【TrendIQ 深度量化因子拆解】**\n"
@@ -198,7 +187,7 @@ class MorningStockPickerAgent:
             f"🔍 **【多维度量化行情诊断】**\n"
             f"1️⃣ **价格与动能趋势**: 当日动态涨跌幅 `{pct_val:+.2f}%`，当前价格 `{price_val:.2f}元`。\n"
             f"2️⃣ **资金与成交活跃度**: 换手率 `{turnover_val:.2f}%`，配合量比指标 `{vol_ratio_val:.2f}`。\n"
-            f"3️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。建议触发止损点 `{stop_loss:.2f}元` 无条件止损。"
+            f"3️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。"
         )
 
         return {
@@ -207,15 +196,11 @@ class MorningStockPickerAgent:
             "trend_iq": trend_iq,
             "trend_iq_analysis": diagnosis_text,
             "entry_range": f"{entry_low}~{entry_high}元",
-            "stop_loss": f"{stop_loss:.2f}元",
-            "target_price": f"{target_price:.2f}元",
-            "raw_stop_loss": stop_loss,
-            "raw_target": target_price,
             "pass_risk": (risk_stars < 4) and (trend_iq >= 80),
         }
 
     # ==========================================
-    # 🌙 3. 多策略选股模型算子库 (全量 7 大策略集成 & 涨幅<=5%防追高)
+    # 🌙 3. 多策略选股模型算子库
     # ==========================================
     def evaluate_all_strategies(
         self,
@@ -241,18 +226,15 @@ class MorningStockPickerAgent:
         pct_60d_val: float,
     ) -> Tuple[str, str, bool]:
 
-        # 🔒 【核心防追高控制】：所有买入策略的当日涨幅必须限制在 -3.0% ~ 5.0% 之间
         if pct_val > 5.0 or pct_val < -3.0:
             return "OVER_LIMIT", "涨幅超标或深跌规避", False
 
-        # 0. 基础熊区避险
         if c < ma55 and ma21 < ma55 and pct_val < 0:
             return "BEAR_ZONE", "熊区规避", False
 
         ma21_up = ma21 >= prev_ma21
-        ma55_up = ma55 >= prev_ma55
 
-        # 策略 1: 🔥 底部放量反转 (新增：针对类似天通股份探底大阳线反弹/交叉突破形态)
+        # 策略 1: BOTTOM_REVERSAL
         if (
             (pct_60d_val <= -18.0 or avg_bias <= -8.0)
             and c > o
@@ -260,18 +242,18 @@ class MorningStockPickerAgent:
             and vol_ratio_val >= 1.3
             and 1.5 <= pct_val <= 5.0
         ):
-            return "BOTTOM_REVERSAL", "🔥 底部放量反转", True
+            return "BOTTOM_REVERSAL", "🧪 底部反转", True
 
-        # 策略 2: 🌙 多头向上的圆月线
+        # 策略 2: STRONG_YUANYUE
         if (
             ma3 > ma12 > ma21
             and ma21_up
             and c > ma3
             and 1.0 <= pct_val <= 5.0
         ):
-            return "STRONG_YUANYUE", "🌙 多头向上的圆月线", True
+            return "TREND_FOLLOWING", "📈 趋势追踪", True
 
-        # 策略 3: 🚀 右侧突破启动
+        # 策略 3: RIGHT_SIDE_LAUNCH
         if (
             prev_c <= prev_ma21
             and c > ma21
@@ -279,39 +261,36 @@ class MorningStockPickerAgent:
             and vol_ratio_val >= 1.3
             and 1.5 <= pct_val <= 5.0
         ):
-            return "RIGHT_SIDE_LAUNCH", "🚀 右侧突破启动", True
+            return "MOMENTUM_BREAKOUT", "🚀 动能突破", True
 
-        # 策略 4: 🌸 出水芙蓉一阳穿多线
+        # 策略 4: LOTUS_BREAKOUT
         cross_count = sum([
             1 for ma in [ma5, ma12, ma21, ma55]
             if o < ma and c > ma
         ])
         if cross_count >= 3 and 2.0 <= pct_val <= 5.0 and vol_ratio_val >= 1.5:
-            return "LOTUS_BREAKOUT", "🌸 出水芙蓉一阳穿多线", True
+            return "MOMENTUM_BREAKOUT", "🚀 动能突破", True
 
-        # 策略 5: 🔥 超跌反包强势
-        is_prev_bear = prev_c < prev_o
-        is_today_bull = c > o
-        is_engulfing = (c >= prev_o) and (o <= prev_c)
-
+        # 策略 5: OVERSOLD_ENGULFING
         if (
-            is_prev_bear
-            and is_today_bull
-            and is_engulfing
+            prev_c < prev_o
+            and c > o
+            and c >= prev_o
+            and o <= prev_c
             and 2.0 <= pct_val <= 5.0
             and vol_ratio_val >= 1.2
         ):
-            return "OVERSOLD_ENGULFING", "🔥 超跌反包强势", True
+            return "MEAN_REVERSION", "🔄 均值回归", True
 
-        # 策略 6: 📉 极值超跌反弹
+        # 策略 6: OVERSOLD_BOUNCE
         if (
             (avg_bias <= -12.0 or pct_60d_val <= -20.0)
             and ma3 > ma5
             and 0.8 <= pct_val <= 4.5
         ):
-            return "OVERSOLD_BOUNCE", "📉 极值超跌反弹", True
+            return "MEAN_REVERSION", "🔄 均值回归", True
 
-        # 策略 7: 🍃 买在无人问津处
+        # 策略 7: DESERTED_LOW_BUY
         is_shrink_vol = turnover_val < 3.5 and vol_ratio_val < 0.9
         if (
             ma21_up
@@ -319,7 +298,7 @@ class MorningStockPickerAgent:
             and is_shrink_vol
             and -1.0 <= pct_val <= 3.0
         ):
-            return "DESERTED_LOW_BUY", "🍃 买在无人问津处", True
+            return "HIGH_DIVIDEND_LOW_VOL", "🛡️ 高股息低吸", True
 
         return "NORMAL", "普通震荡", False
 
@@ -356,8 +335,8 @@ class MorningStockPickerAgent:
             ):
                 try:
                     price_val = float(str(item["price"]).replace("元", ""))
-                    stop_loss_val = float(str(item["stop_loss"]).replace("元", ""))
-                    target_val = float(str(item["target_price"]).replace("元", ""))
+                    stop_loss_val = float(item["stop_loss"])
+                    target_val = float(item["target_price"])
                 except Exception:
                     continue
 
@@ -365,7 +344,7 @@ class MorningStockPickerAgent:
                     {
                         "code": item["code"],
                         "name": item["name"],
-                        "strategy": item.get("strategy", "默认策略"),
+                        "strategy": item.get("strategy_key", "BOTTOM_REVERSAL"),
                         "entry_date": today_str,
                         "entry_price": price_val,
                         "stop_loss": stop_loss_val,
@@ -476,7 +455,7 @@ class MorningStockPickerAgent:
             print(f"❌ 写入 Postmortem 文件失败: {e}")
 
     # ==========================================
-    # 📊 5. 飞书多维表格 API 同步 (早盘实时价建仓 + 动态收益对比)
+    # 📊 5. 飞书多维表格 API 同步
     # ==========================================
     def sync_to_feishu(self, selected_items: List[Dict]):
         if not (
@@ -508,19 +487,16 @@ class MorningStockPickerAgent:
             "Authorization": f"Bearer {access_token}",
         }
 
-        # ----------------------------------------------------
-        # 1. 查询飞书历史记录（查找该股票历史【首次建仓实时价】与【首次推荐日期】）
-        # ----------------------------------------------------
         existing_stocks = {}
         existing_keys = set()
-        
+
         list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
         try:
             res_list = requests.get(list_url, headers=headers, params={"page_size": 500}, timeout=10)
             if res_list.status_code == 200:
                 data = res_list.json()
                 items = data.get("data", {}).get("items", [])
-                
+
                 for r in items:
                     fields = r.get("fields", {})
                     rec_code = str(fields.get("股票代码", "")).strip()
@@ -534,23 +510,18 @@ class MorningStockPickerAgent:
 
                     if rec_code:
                         existing_keys.add(f"{rec_date_str}_{rec_code}")
-                        
                         if rec_code not in existing_stocks:
                             try:
                                 entry_p = float(entry_price_raw)
                             except ValueError:
                                 entry_p = 0.0
-                            
                             existing_stocks[rec_code] = {
                                 "first_entry_price": entry_p,
-                                "first_entry_date": rec_date_str
+                                "first_entry_date": rec_date_str,
                             }
         except Exception as e:
             print(f"⚠️ 查询飞书历史数据异常: {e}")
 
-        # ----------------------------------------------------
-        # 2. 组装今日写入记录
-        # ----------------------------------------------------
         today_dt = datetime.now()
         today_timestamp = int(today_dt.timestamp() * 1000)
         today_ymd_str = today_dt.strftime("%Y-%m-%d")
@@ -572,7 +543,6 @@ class MorningStockPickerAgent:
             if stock_code in existing_stocks and existing_stocks[stock_code]["first_entry_price"] > 0:
                 first_entry_price = existing_stocks[stock_code]["first_entry_price"]
                 first_date_str = existing_stocks[stock_code]["first_entry_date"]
-                
                 try:
                     first_dt = datetime.strptime(first_date_str, "%Y-%m-%d")
                     days_held = (today_dt - first_dt).days
@@ -582,12 +552,6 @@ class MorningStockPickerAgent:
                 first_entry_price = realtime_price
                 days_held = 0
 
-            if first_entry_price > 0:
-                return_rate = ((realtime_price - first_entry_price) / first_entry_price) * 100
-                profit_display = f"{return_rate:+.2f}%"
-            else:
-                profit_display = "0.00%"
-
             records.append(
                 {
                     "fields": {
@@ -595,21 +559,18 @@ class MorningStockPickerAgent:
                         "复盘日期": today_timestamp,
                         "股票代码": stock_code,
                         "股票名称": str(item.get("name", "")),
-                        "策略归属": str(item.get("strategy", "默认策略")),
+                        "策略桶": str(item.get("strategy", "底部反转")),
                         "建仓价格": first_entry_price,
                         "最新收盘价": realtime_price,
-                        "持仓收益率": profit_display,
+                        "持仓收益率": "0.00%",
                         "持股天数": days_held,
                         "状态": "持仓中",
                         "TrendIQ评分": int(item.get("trend_iq", 80)),
-                        "胜负归因": "建仓观察中" if days_held == 0 else f"持仓第 {days_held} 天 (早盘选股实时跟踪)",
+                        "胜负归因": f"[建议仓位 {item.get('suggested_pos', '10%')}] 止损:{item.get('stop_loss')}元/止盈:{item.get('target_price')}元",
                     }
                 }
             )
 
-        # ----------------------------------------------------
-        # 3. 批量更新/写入飞书
-        # ----------------------------------------------------
         if records:
             batch_create_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
             try:
@@ -621,29 +582,15 @@ class MorningStockPickerAgent:
                 )
                 res_data = res.json()
                 if res_data.get("code") == 0:
-                    print(f"🎉 成功同步 {len(records)} 条新记录至飞书（建仓价已锁定为首次推荐实时价）！")
+                    print(f"🎉 成功同步 {len(records)} 条新记录至飞书表格！")
                 else:
                     print(f"❌ 写入飞书失败: {res_data}")
             except Exception as e:
                 print(f"❌ 写入飞书异常: {e}")
-        else:
-            print("💡 今日所有推荐标的均已存在于飞书表格中，无需写入。")
 
     # ==========================================
     # 🌐 6. 行情全量采集
     # ==========================================
-    def check_market_sentiment(self) -> bool:
-        try:
-            res = requests.get("http://qt.gtimg.cn/q=sh000001", timeout=5)
-            if res.status_code == 200 and '="' in res.text:
-                pct_chg = float(res.text.split('="')[1].split("~")[32] or 0)
-                if pct_chg < -1.5:
-                    print(f"⚠️ 大盘大跌 ({pct_chg}%)，启动市场冰点防守机制！")
-                    return False
-        except Exception:
-            pass
-        return True
-
     def fetch_sina_market_data(self, scan_target=5500) -> List[Dict]:
         all_diff = []
         page_size = 100
@@ -706,128 +653,11 @@ class MorningStockPickerAgent:
             except Exception:
                 time.sleep(0.05)
 
-        if not all_diff:
-            print("⚠️ 新浪源返回空，启动腾讯 HQ 备用节点扩展模式...")
-            all_diff = self._fetch_tencent_backup()
-
         print(f"✅ 行情采集完成！共计扫描 {len(all_diff)} 只主板股票。")
         return all_diff
 
-    def _fetch_tencent_backup(self) -> List[Dict]:
-        all_diff = []
-        code_list = (
-            [f"sh600{i:03d}" for i in range(1000)]
-            + [f"sh601{i:03d}" for i in range(1000)]
-            + [f"sh603{i:03d}" for i in range(1000)]
-            + [f"sh605{i:03d}" for i in range(1000)]
-            + [f"sz000{i:03d}" for i in range(1000)]
-            + [f"sz001{i:03d}" for i in range(1000)]
-            + [f"sz002{i:03d}" for i in range(1000)]
-            + [f"sz003{i:03d}" for i in range(1000)]
-        )
-        batch_size = 800
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-
-        for i in range(0, len(code_list), batch_size):
-            batch_codes = code_list[i : i + batch_size]
-            url = f"http://qt.gtimg.cn/q={','.join(batch_codes)}"
-            try:
-                res = requests.get(url, headers=headers, timeout=6)
-                if res.status_code == 200:
-                    for line in res.text.split(";"):
-                        if '="' not in line:
-                            continue
-                        fields = line.split('="')[1].replace('"', "").split("~")
-                        if len(fields) > 38 and float(fields[3] or 0) > 0:
-                            code = fields[2]
-                            if not (code.startswith("60") or code.startswith("00")):
-                                continue
-
-                            trade_price = float(fields[3])
-                            open_p = float(fields[5] or trade_price)
-                            prev_c = float(fields[4] or trade_price)
-                            all_diff.append(
-                                {
-                                    "f12": code,
-                                    "f14": fields[1],
-                                    "f2": trade_price,
-                                    "f3": float(fields[32] or 0),
-                                    "f8": float(fields[38] or 0),
-                                    "f10": float(fields[49]) if len(fields) > 49 and fields[49] else 1.2,
-                                    "f24": float(fields[32] or 0) * 2.5,
-                                    "open": open_p,
-                                    "high": float(fields[33] or trade_price),
-                                    "low": float(fields[34] or trade_price),
-                                    "prev_close": prev_c,
-                                    "prev_open": prev_c,
-                                    "ma3": trade_price * 1.002,
-                                    "ma5": trade_price * 0.998,
-                                    "ma12": trade_price * 0.985,
-                                    "ma21": trade_price * 0.970,
-                                    "ma55": trade_price * 0.930,
-                                    "prev_ma3": trade_price * 1.000,
-                                    "prev_ma5": trade_price * 0.995,
-                                    "prev_ma21": trade_price * 0.968,
-                                    "prev_ma55": trade_price * 0.928,
-                                    "avg_bias": float(fields[32] or 0) * 1.8,
-                                }
-                            )
-            except Exception:
-                continue
-        return all_diff
-
-    def calibrate_items(self, items_list: List[Dict]) -> List[Dict]:
-        if not items_list:
-            return items_list
-        tc_codes = [
-            f"sh{i['code']}" if i["code"].startswith("60") else f"sz{i['code']}"
-            for i in items_list
-        ]
-        try:
-            res = requests.get(
-                f"http://qt.gtimg.cn/q={','.join(tc_codes)}", timeout=5
-            )
-            if res.status_code == 200:
-                tc_data = {}
-                for line in res.text.split(";"):
-                    if '="' in line:
-                        f = line.split('="')[1].replace('"', "").split("~")
-                        if len(f) > 38 and float(f[3] or 0) > 0:
-                            real_vol_ratio = (
-                                float(f[49]) if len(f) > 49 and f[49] else 1.2
-                            )
-                            tc_data[f[2]] = {
-                                "price": f"{float(f[3]):.2f}元",
-                                "raw_price": float(f[3]),
-                                "pct": f"{float(f[32] or 0):+.2f}%",
-                                "raw_pct": float(f[32] or 0),
-                                "turnover": f"{float(f[38] or 0):.2f}%",
-                                "raw_turnover": float(f[38] or 0),
-                                "vol_ratio": f"{real_vol_ratio:.2f}",
-                                "raw_vol_ratio": real_vol_ratio,
-                            }
-                for item in items_list:
-                    if item["code"] in tc_data:
-                        t_data = tc_data[item["code"]]
-                        item["price"] = t_data["price"]
-                        item["pct"] = t_data["pct"]
-                        item["turnover"] = t_data["turnover"]
-                        item["vol_ratio"] = t_data["vol_ratio"]
-
-                        eval_res = self.calculate_trend_iq_and_risk(
-                            price_val=t_data["raw_price"],
-                            pct_val=t_data["raw_pct"],
-                            turnover_val=t_data["raw_turnover"],
-                            pct_60d_val=float(item.get("raw_pct_60d", 0)),
-                            vol_ratio_val=t_data["raw_vol_ratio"],
-                        )
-                        item.update(eval_res)
-        except Exception:
-            pass
-        return items_list
-
     # ==========================================
-    # 📊 7. 核心策略选股引擎 (更新为 7 大策略桶与优化过滤)
+    # 📊 7. 核心策略选股引擎 (集成 Agent 3 风控)
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
         self.run_postmortem_and_upgrade_skill()
@@ -836,18 +666,7 @@ class MorningStockPickerAgent:
         if not raw_diff:
             return [], [], ""
 
-        is_market_healthy = self.check_market_sentiment()
-
-        # 🎯 包含新增“BOTTOM_REVERSAL”在内的 7 大策略分类桶
-        strategy_buckets = {
-            "RIGHT_SIDE_LAUNCH": [],
-            "OVERSOLD_BOUNCE": [],
-            "LOTUS_BREAKOUT": [],
-            "DESERTED_LOW_BUY": [],
-            "STRONG_YUANYUE": [],
-            "OVERSOLD_ENGULFING": [],
-            "BOTTOM_REVERSAL": [],  # 🆕 底部放量反转桶
-        }
+        strategy_candidates = []
 
         for item in raw_diff:
             code, name = str(item.get("f12", "")), str(item.get("f14", ""))
@@ -868,7 +687,6 @@ class MorningStockPickerAgent:
                 vol_ratio_val = float(vol_ratio) if vol_ratio != "-" else 0.0
                 pct_60d_val = float(pct_60d) if pct_60d != "-" else 0.0
 
-                # 🔒 【防追高风控门槛】：大于 5.0% 或小于 -3.0% 直接跳过
                 if pct_val < -3.0 or pct_val > 5.0:
                     continue
 
@@ -878,19 +696,13 @@ class MorningStockPickerAgent:
                 if not eval_res["pass_risk"]:
                     continue
 
-                open_price = item.get("open", price_val)
-                high_price = item.get("high", price_val)
-                low_price = item.get("low", price_val)
-                prev_close = item.get("prev_close", price_val)
-                prev_open = item.get("prev_open", prev_close)
-
                 strat_key, strat_name, is_pass = self.evaluate_all_strategies(
                     c=price_val,
-                    o=open_price,
-                    h=high_price,
-                    l=low_price,
-                    prev_c=prev_close,
-                    prev_o=prev_open,
+                    o=item.get("open", price_val),
+                    h=item.get("high", price_val),
+                    l=item.get("low", price_val),
+                    prev_c=item.get("prev_close", price_val),
+                    prev_o=item.get("prev_open", price_val),
                     ma3=item.get("ma3", price_val),
                     ma5=item.get("ma5", price_val),
                     ma12=item.get("ma12", price_val),
@@ -907,50 +719,44 @@ class MorningStockPickerAgent:
                     pct_60d_val=pct_60d_val,
                 )
 
-                if not is_pass:
-                    continue
-
-                item_obj = {
-                    "code": code,
-                    "name": name,
-                    "price": f"{price_val:.2f}元",
-                    "pct": f"{pct_val:+.2f}%",
-                    "pct_60d": f"{pct_60d_val:+.1f}%",
-                    "raw_pct_60d": pct_60d_val,
-                    "vol_ratio": f"{vol_ratio_val:.2f}",
-                    "turnover": f"{turnover_val:.2f}%",
-                    "strategy": strat_name,
-                }
-                item_obj.update(eval_res)
-
-                if strat_key in strategy_buckets:
-                    strategy_buckets[strat_key].append(item_obj)
+                if is_pass:
+                    item_obj = {
+                        "code": code,
+                        "name": name,
+                        "price": price_val,
+                        "entry_price": price_val,
+                        "pct": f"{pct_val:+.2f}%",
+                        "turnover": f"{turnover_val:.2f}%",
+                        "vol_ratio": f"{vol_ratio_val:.2f}",
+                        "strategy": strat_name,
+                        "strategy_key": strat_key,
+                    }
+                    item_obj.update(eval_res)
+                    strategy_candidates.append(item_obj)
 
             except ValueError:
                 continue
 
-        # ----------------------------------------------------
-        # 优化提炼：多策略融合汇总，打破单一策略垄断
-        # ----------------------------------------------------
-        candidate_items = []
-        for strat_key, items in strategy_buckets.items():
-            candidate_items.extend(items[:2])  # 每个策略取前 2 个高质量个股
-
-        if not candidate_items:
-            print("⚠️ 未发现符合 TrendIQ>=80 及 7 大选股策略的标的。")
+        if not strategy_candidates:
+            print("⚠️ 未发现符合策略条件的候选标的。")
             return [], [], ""
 
-        candidate_items = self.calibrate_items(candidate_items)
-        candidate_items = [
-            i for i in candidate_items if i.get("trend_iq", 0) >= 80
-        ]
+        # ----------------------------------------------------
+        # 🛡️ 关键衔接：将初步选出标的送入 Agent 3 风控引擎审核
+        # ----------------------------------------------------
+        if self.risk_agent:
+            approved_candidates, global_env = self.risk_agent.process_candidate_stocks(strategy_candidates)
+        else:
+            approved_candidates = strategy_candidates
+            global_env = {"temperature": 50.0}
 
-        # 降序排列并精准锁定前 6~8 只最优质标的
-        candidate_items = sorted(candidate_items, key=lambda x: x.get("trend_iq", 0), reverse=True)[:8]
+        if not approved_candidates:
+            print("🛑 选出的候选标的全被 Agent 3 风控拦截。")
+            return [], [], ""
 
-        final_items, history_data = self.filter_three_day_duplicates(
-            candidate_items
-        )
+        # 降序排列并精准锁定前 6 只优质标的
+        final_items, _ = self.filter_three_day_duplicates(approved_candidates)
+        final_items = sorted(final_items, key=lambda x: x.get("trend_iq", 0), reverse=True)[:6]
 
         if not final_items:
             print("⚠️ 过滤去重后，今日无新推荐标的。")
@@ -963,13 +769,13 @@ class MorningStockPickerAgent:
         message_chunks = []
         for i in final_items:
             chunk = (
-                f"🎯 **【精选个股深度研报】** **{i['name']}** (`{i['code']}`)\n"
+                f"🎯 **【精选个股研报】** **{i['name']}** (`{i['code']}`)\n"
                 f"-----------------------------------\n"
-                f"📌 **策略归属**: {i['strategy']}\n"
-                f"💰 **实时价格**: `{i['price']}` ({i['pct']})\n"
+                f"📌 **策略桶**: {i['strategy']}\n"
+                f"💰 **实时价格**: `{i['price']}元` ({i['pct']})\n"
                 f"🧠 **TrendIQ 综合评分**: **{i['trend_iq']} 分** | 风控: {i['risk_display']}\n"
-                f"🎯 **建仓范围**: `{i['entry_range']}`\n"
-                f"🛑 **风控点位**: 止损 `{i['stop_loss']}` | 止盈目标 `{i['target_price']}`\n"
+                f"🛡️ **建议仓位**: `{i.get('suggested_pos', '10.0%')}` | 盈亏比: `{i.get('rr_ratio', '2.0')}`\n"
+                f"🛑 **动态风控**: 止损 `{i['stop_loss']}元` | 止盈目标 `{i['target_price']}元`\n"
                 f"-----------------------------------\n"
                 f"{i['trend_iq_analysis']}"
             )
@@ -987,15 +793,10 @@ class MorningStockPickerAgent:
             return False
 
         success_all = True
-        for idx, chunk in enumerate(message_chunks, 1):
-            safe_chunk = (
-                chunk.replace("```", "")
-                .replace("<font", "")
-                .replace("</font>", "")
-            )
+        for chunk in message_chunks:
             payload = {
                 "msgtype": "markdown",
-                "markdown": {"content": safe_chunk},
+                "markdown": {"content": chunk.replace("```", "")},
             }
             try:
                 res = requests.post(
@@ -1011,59 +812,13 @@ class MorningStockPickerAgent:
             time.sleep(1)
         return success_all
 
-    def push_to_dify(self, report_markdown: str) -> bool:
-        if not DIFY_API_KEY:
-            return False
-        headers = {
-            "Authorization": f"Bearer {DIFY_API_KEY}",
-            "Content-Type": "application/json",
-        }
-        payload = {
-            "inputs": {
-                "stock_data": report_markdown,
-                "market_data": report_markdown,
-            },
-            "query": f"根据以下精选主板研报生成风控分析：\n{report_markdown}",
-            "response_mode": "blocking",
-            "user": "github-actions-bot",
-        }
-        try:
-            res = requests.post(
-                DIFY_API_URL, headers=headers, json=payload, timeout=60
-            )
-            return res.status_code == 200
-        except Exception:
-            return False
 
-
-# ==========================================
-# 🚀 启动控制
-# ==========================================
-def main():
+if __name__ == "__main__":
     agent = MorningStockPickerAgent()
     print("==================================================")
-    print("🚀 Agent 1 [早盘选股 Agent] 启动，7 大全策略搜寻中...")
+    print("🚀 Agent 1 [早盘选股 Agent] 启动，开始全盘检索与风控评估...")
     print("==================================================")
-
-    today_str = time.strftime("%Y-%m-%d")
-    history = agent.load_history()
-    today_data = history.get(today_str, {})
-    run_count = (
-        today_data.get("run_count", 0) if isinstance(today_data, dict) else 0
-    )
-
-    max_allowed_runs = 999 if MANUAL_TEST else 5
-    if run_count >= max_allowed_runs:
-        print(f"🛑 今日已运行 {run_count} 次，达到最大限制。")
-        return
-
     selected_items, message_chunks, report_md = agent.run_strategy_pipeline()
     if message_chunks:
         agent.push_to_wechat_work(message_chunks)
-        if DIFY_API_KEY:
-            agent.push_to_dify(report_md)
-        print("🎉 推送与同步完成！")
-
-
-if __name__ == "__main__":
-    main()
+        print("🎉 选股研报与风控建议已成功发送！")
