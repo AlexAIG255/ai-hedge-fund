@@ -3,6 +3,24 @@ Agent 1: 大盘早晚选股 Agent - 7大全策略选股模型集成 & 飞书防�
 集成了全量 A 股抓取（5000+只）、7大核心量化选股（右侧启动/超跌反弹/出水芙蓉/买在无人问津处/多头向上的圆月线/超跌反包强势/底部放量反转）、
 严格控制涨幅 <= 5% 防追高、5-45日跟踪复盘、飞书数据类型精准对齐、飞书当天重复写入拦截、胜负归因分析与 Skill 策略自迭代能力。
 """
+# 在 morning_picker.py 头部引入
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from risk.risk_manager import RiskManagerAgent
+
+# ... 在 morning_picker 执行选股逻辑后 ...
+
+def run_morning_picker():
+    raw_candidates = get_raw_stock_candidates() # 假设获取到了早盘初步选股列表
+    
+    # 🛡️ 调用 Agent 3 进行全球风控与定价过滤
+    risk_agent = RiskManagerAgent()
+    approved_candidates, global_env = risk_agent.process_candidate_stocks(raw_candidates)
+    
+    # 后续企微推送、飞书多维表格回写仅使用 approved_candidates
+    push_to_feishu_and_wechat(approved_candidates, global_env)
 
 import json
 import os
