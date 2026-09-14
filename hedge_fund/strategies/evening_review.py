@@ -1,6 +1,6 @@
 """
 Agent 2: 晚间复盘 Agent - 5-45日跟踪复盘 & 飞书覆盖更新 & 企微强弱筛选与深度归因推送 & Skill 策略自我迭代
-针对早盘选股池，获取当日最新收盘价，精准更新飞书多维表格（覆盖收益率、持股天数、状态），
+针对早盘选股池（含 BOTTOM_REVERSAL 策略桶），获取当日最新收盘价，精准更新飞书多维表格（覆盖收益率、持股天数、状态、策略桶），
 并按 5 个股票/组切片推送，附带强势/弱势筛选及盈亏归因文字总结，彻底规避 4096 字节限制。
 """
 
@@ -17,6 +17,10 @@ FEISHU_APP_TOKEN = os.environ.get("FEISHU_APP_TOKEN", "").strip()
 FEISHU_TABLE_ID = os.environ.get("FEISHU_TABLE_ID", "").strip()
 
 WECHAT_WEBHOOK = os.environ.get("WECHAT_WEBHOOK", "").strip()
+
+# 🧪 策略桶配置参数
+ENABLE_BOTTOM_REVERSAL = os.environ.get("ENABLE_BOTTOM_REVERSAL", "true").lower() == "true"
+MAX_PCT_LIMIT = float(os.environ.get("MAX_PCT_LIMIT", "5.0"))
 
 # 🎯 持久化文件路径
 TRACKER_FILE = "portfolio_tracker.json"
@@ -48,7 +52,7 @@ class EveningReviewAgent:
             print(f"❌ 保存持仓跟踪池失败: {e}")
 
     # ==========================================
-    # 🔍 1. 获取飞书 Access Token 与 记录 List (全解析兼容)
+    # 🔍 1. 获取飞书 Access Token 与 记录 List
     # ==========================================
     def get_feishu_token_and_records(self) -> Tuple[str, Dict[str, str]]:
         """获取 Token 并检索飞书中所有记录，建立 (股票代码 -> record_id) 的映射关系"""
@@ -87,7 +91,6 @@ class EveningReviewAgent:
                     rec_id = r.get("record_id")
                     fields = r.get("fields", {})
 
-                    # 强兼容解析：处理文本、数字、超链接数组等飞书不同字段数据结构
                     code_val = fields.get("股票代码") or fields.get("代码") or ""
                     if isinstance(code_val, list) and len(code_val) > 0:
                         code_val = code_val[0].get("text", "") if isinstance(code_val[0], dict) else str(code_val[0])
@@ -96,7 +99,7 @@ class EveningReviewAgent:
 
                     code = str(code_val).strip()
                     if code and len(code) < 6 and code.isdigit():
-                        code = code.zfill(6)  # 智能补全 6 位代码格式
+                        code = code.zfill(6)
 
                     if code and rec_id:
                         record_map[code] = rec_id
@@ -110,7 +113,7 @@ class EveningReviewAgent:
         return access_token, record_map
 
     # ==========================================
-    # 📈 2. 核心行情复盘与飞书覆盖更新
+    # 📈 2. 核心行情复盘与飞书覆盖更新 (含策略桶)
     # ==========================================
     def run_evening_review(self):
         tracker_data = self.load_tracker()
@@ -126,12 +129,12 @@ class EveningReviewAgent:
             return
 
         # 1. 批量获取腾讯最新行情
-        tc_codes = [f"sh{i['code']}" if i["code"].startswith("60") else f"sz{i['code']}" for i in active_tracking]
+        tc_codes = [f"sh{i['code']}" if i["code"].startswith("60") or i["code"].startswith("68") else f"sz{i['code']}" for i in active_tracking]
         headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
 
+        price_map = {}
         try:
             res = requests.get(f"http://qt.gtimg.cn/q={','.join(tc_codes)}", headers=headers, timeout=6)
-            price_map = {}
             if res.status_code == 200:
                 for line in res.text.split(";"):
                     if '="' in line:
@@ -140,12 +143,11 @@ class EveningReviewAgent:
                             price_map[f[2]] = float(f[3])
         except Exception as e:
             print(f"❌ 拉取实时收盘价异常: {e}")
-            price_map = {}
 
         review_summary = []
         today_timestamp = int(time.time() * 1000)
 
-        # 2. 遍历持仓池逐一做强弱判定与状态评估
+        # 2. 遍历持仓池逐一做强弱判定与策略桶归因
         for item in tracker_data:
             if item.get("status") != "TRACKING":
                 continue
@@ -154,23 +156,28 @@ class EveningReviewAgent:
             entry_price = item["entry_price"]
             curr_price = price_map.get(code, entry_price)
 
+            # 更新持仓天数
             item["days_tracked"] = item.get("days_tracked", 0) + 1
             days = item["days_tracked"]
 
             ret_pct = ((curr_price - entry_price) / entry_price) * 100
             ret_str = f"{ret_pct:+.2f}%"
 
+            strategy = item.get("strategy", "BOTTOM_REVERSAL" if ENABLE_BOTTOM_REVERSAL else "综合选股")
             status = "持仓中"
             strength = "🔥 强势" if ret_pct >= 0 else "⚠️ 弱势"
 
-            if curr_price >= item.get("target_price", entry_price * 1.1):
+            target_price = item.get("target_price", entry_price * 1.1)
+            stop_loss = item.get("stop_loss", entry_price * 0.95)
+
+            if curr_price >= target_price:
                 item["status"] = "WIN"
-                item["reason"] = "达标止盈: 突破关键阻力位，多头量能持续放量"
+                item["reason"] = f"达标止盈 [{strategy}]: 突破关键阻力位，多头量能爆发"
                 status = "已止盈"
                 strength = "🚀 强达标"
-            elif curr_price <= item.get("stop_loss", entry_price * 0.95):
+            elif curr_price <= stop_loss:
                 item["status"] = "LOSS"
-                item["reason"] = "触及止损: 回踩跌破安全支撑线，防范下行风险"
+                item["reason"] = f"触及止损 [{strategy}]: 跌破安全支撑线，防范下行风险"
                 status = "已止损"
                 strength = "❌ 弱触损"
             elif days >= 45:
@@ -178,10 +185,12 @@ class EveningReviewAgent:
                 item["reason"] = "到期清算: 达到 45 日持仓窗口上限"
                 status = "已平仓"
 
+            reason_desc = item.get("reason", "超跌反弹整理中" if strategy == "BOTTOM_REVERSAL" else "趋势震荡整理中")
+
             review_summary.append({
                 "code": code,
                 "name": item["name"],
-                "strategy": item.get("strategy", "综合选股"),
+                "strategy": strategy,
                 "entry_price": entry_price,
                 "curr_price": curr_price,
                 "ret_pct": ret_pct,
@@ -189,36 +198,36 @@ class EveningReviewAgent:
                 "days": days,
                 "status": status,
                 "strength": strength,
-                "reason": item.get("reason", "趋势震荡整理中" if ret_pct >= -2 else "弱势下探均线"),
+                "reason": reason_desc,
             })
 
-            # 3. 🚀 回填/更新飞书多维表格
-            if access_token:
-                if code in record_map:
-                    record_id = record_map[code]
-                    update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/{record_id}"
-                    headers_fs = {
-                        "Content-Type": "application/json; charset=utf-8",
-                        "Authorization": f"Bearer {access_token}",
+            # 3. 回填/更新飞书多维表格
+            if access_token and code in record_map:
+                record_id = record_map[code]
+                update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/{record_id}"
+                headers_fs = {
+                    "Content-Type": "application/json; charset=utf-8",
+                    "Authorization": f"Bearer {access_token}",
+                }
+                payload_fs = {
+                    "fields": {
+                        "复盘日期": today_timestamp,
+                        "最新收盘价": curr_price,
+                        "持仓收益率": ret_str,
+                        "持股天数": days,
+                        "状态": status,
+                        "策略桶": strategy,
+                        "胜负归因": f"[{strength}] {reason_desc}",
                     }
-                    payload_fs = {
-                        "fields": {
-                            "复盘日期": today_timestamp,
-                            "最新收盘价": curr_price,
-                            "持仓收益率": ret_str,
-                            "持股天数": days,
-                            "状态": status,
-                            "胜负归因": f"[{strength}] {item.get('reason', '持仓观察中')}",
-                        }
-                    }
-                    try:
-                        res_patch = requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
-                        if res_patch.status_code == 200:
-                            print(f"✅ 飞书表格已成功同步: {item['name']}({code}) -> {status}")
-                        else:
-                            print(f"❌ 飞书同步失败 ({code}): {res_patch.text}")
-                    except Exception as e:
-                        print(f"❌ 更新飞书 Record ({code}) 异常: {e}")
+                }
+                try:
+                    res_patch = requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
+                    if res_patch.status_code == 200:
+                        print(f"✅ 飞书表格已更新: {item['name']}({code}) -> {status}")
+                    else:
+                        print(f"❌ 飞书更新失败 ({code}): {res_patch.text}")
+                except Exception as e:
+                    print(f"❌ 更新飞书 Record ({code}) 异常: {e}")
 
         # 保存更新后的持仓文件
         self.save_tracker(tracker_data)
@@ -228,7 +237,7 @@ class EveningReviewAgent:
         self.push_wechat_summary(review_summary)
 
     # ==========================================
-    # 🤖 3. Skill 自动迭代与深度归因分析日志
+    # 🤖 3. Skill 自动迭代与深度归因分析日志 (含策略桶归因)
     # ==========================================
     def update_skills_postmortem(self, tracker_data: List[Dict]):
         completed = [i for i in tracker_data if i.get("status") in ["WIN", "LOSS"]]
@@ -236,22 +245,29 @@ class EveningReviewAgent:
         total = len(completed)
         win_rate = (win_count / total * 100) if total > 0 else 0.0
 
+        # 按策略桶分类统计
+        bottom_reversal_picks = [i for i in tracker_data if i.get("strategy") == "BOTTOM_REVERSAL"]
+        br_win = sum(1 for i in bottom_reversal_picks if i.get("status") == "WIN")
+        br_total = sum(1 for i in bottom_reversal_picks if i.get("status") in ["WIN", "LOSS"])
+        br_win_rate = (br_win / br_total * 100) if br_total > 0 else 0.0
+
         content = (
             f"# 🤖 Agent 2 晚间复盘 Skill 策略迭代日志\n\n"
             f"- **更新时间**: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
             f"- **已结案样本总数**: `{total}`\n"
-            f"- **历史总胜率**: `{win_rate:.2f}%`\n\n"
+            f"- **历史总胜率**: `{win_rate:.2f}%`\n"
+            f"- **🧪 BOTTOM_REVERSAL 策略桶胜率**: `{br_win_rate:.2f}%` (已结案 `{br_total}` 选股)\n\n"
             f"## 💡 深度归因与策略调优\n"
         )
         if win_rate < 50.0 and total >= 5:
             content += (
-                "- ⚠️ **盈亏归因**: 胜率低于 50%，主要归因于在市场大盘调整期高吸了缺乏承接资金的股票，止损触达过快。\n"
-                "- 🔧 **调整策略**: 收紧选股标准，将 TrendIQ 硬性门槛提高至 85 分，严格限制高位追涨，优先低吸做多。\n"
+                "- ⚠️ **盈亏归因**: 整体胜率低于 50%，主要归因于大盘调整期低吸承接力度不足，止损触达过快。\n"
+                "- 🔧 **策略调整**: 收紧底部反转触发阀值，控制涨幅限制在 `MAX_PCT_LIMIT` 以内，提升防守安全性。\n"
             )
         else:
             content += (
-                "- ✅ **盈亏归因**: 选股动能延续性良好，强势个股成功承接主线资金，止盈机制触发稳定。\n"
-                "- 🚀 **调整策略**: 保持当前低吸与量价突破系统，继续强化 5-45 日波段监控。\n"
+                "- ✅ **盈亏归因**: 选股动能延续性良好，底部反转标的成功反弹，止盈机制触发稳定。\n"
+                "- 🚀 **策略调整**: 保持当前底部分析与量价突破系统，持续强化 5-45 日波段监控。\n"
             )
 
         try:
@@ -262,7 +278,7 @@ class EveningReviewAgent:
             print(f"❌ 写入 Skill 日志失败: {e}")
 
     # ==========================================
-    # 📱 4. 企微分批推送 (强弱筛选 + 盈亏归因文字总结)
+    # 📱 4. 企微分批推送 (强弱筛选 + 策略桶归因)
     # ==========================================
     def push_wechat_summary(self, summary_list: List[Dict]):
         if not WECHAT_WEBHOOK or not summary_list:
@@ -287,8 +303,9 @@ class EveningReviewAgent:
                 icon = "🔴" if s["ret_pct"] > 0 else ("🟢" if s["ret_pct"] < 0 else "⚪")
                 line = (
                     f"{icon} **{s['name']}** (`{s['code']}`)\n"
-                    f"• 评级: **{s['strength']}** | 状态: **{s['status']}**\n"
+                    f"• 策略桶: **{s['strategy']}** | 评级: **{s['strength']}**\n"
                     f"• 最新价: `{s['curr_price']:.2f}元` | 收益: `{s['ret_str']}`\n"
+                    f"• 状态: **{s['status']}** | 天数: `{s['days']}天`\n"
                     f"• 归因: {s['reason']}\n"
                 )
                 lines.append(line)
@@ -303,9 +320,9 @@ class EveningReviewAgent:
 
                 lines.append("🧐 **【盈亏归因分析】**")
                 if avg_ret >= 0:
-                    lines.append("• **盈利主因**: 强势股成功吸纳主线资金，板块共振强，量价配合良好，支撑位反弹有力。")
+                    lines.append("• **盈利主因**: BOTTOM_REVERSAL 与主线策略标的承接资金有力，反弹共振效果显著。")
                 else:
-                    lines.append("• **亏损主因**: 部分个股在大盘回调时缺乏资金承接，跌破短线支撑线触发防守策略。")
+                    lines.append("• **亏损主因**: 部分标的在大盘回调时缺乏买盘跟进，跌破安全线触发防守机制。")
 
                 lines.append("\n💡 *数据已精准回填至飞书多维表格*")
 
