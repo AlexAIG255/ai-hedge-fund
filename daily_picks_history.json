@@ -2046,5 +2046,58 @@
         "pct_at_pick": "+9.33%"
       }
     ]
+  },
+  "2026-09-14": {
+    "run_count": 1,
+    "records": [
+      {
+        "code": "600088",
+        "name": "中视传媒",
+        "strategy": "🚀 右侧突破启动",
+        "pick_price": 13.96,
+        "stop_loss": 13.26,
+        "target_price": 15.08,
+        "entry_range": "13.75~14.03元",
+        "trend_iq": 99,
+        "risk_stars": 1,
+        "pct_at_pick": "+4.18%"
+      },
+      {
+        "code": "600228",
+        "name": "返利科技",
+        "strategy": "🚀 右侧突破启动",
+        "pick_price": 10.0,
+        "stop_loss": 9.5,
+        "target_price": 10.8,
+        "entry_range": "9.85~10.05元",
+        "trend_iq": 95,
+        "risk_stars": 1,
+        "pct_at_pick": "+5.15%"
+      },
+      {
+        "code": "600186",
+        "name": "莲花控股",
+        "strategy": "🌸 出水芙蓉一阳穿多线",
+        "pick_price": 12.87,
+        "stop_loss": 12.23,
+        "target_price": 13.9,
+        "entry_range": "12.68~12.93元",
+        "trend_iq": 98,
+        "risk_stars": 2,
+        "pct_at_pick": "+7.43%"
+      },
+      {
+        "code": "600330",
+        "name": "天通股份",
+        "strategy": "🌸 出水芙蓉一阳穿多线",
+        "pick_price": 29.9,
+        "stop_loss": 28.4,
+        "target_price": 32.29,
+        "entry_range": "29.45~30.05元",
+        "trend_iq": 98,
+        "risk_stars": 2,
+        "pct_at_pick": "+8.81%"
+      }
+    ]
   }
 }
