@@ -589,9 +589,67 @@ class MorningStockPickerAgent:
                 print(f"❌ 写入飞书异常: {e}")
 
     # ==========================================
-    # 🌐 6. 行情全量采集
+    # 🌐 6. 行情全量采集（东财+新浪主备，腾讯二次价格校验）
     # ==========================================
-    def fetch_sina_market_data(self, scan_target=5500) -> List[Dict]:
+    def _fetch_from_eastmoney(self, scan_target=5500) -> List[Dict]:
+        """主通道：东方财富 API 采集"""
+        all_diff = []
+        page_size = 100
+        total_pages = scan_target // page_size
+        session = requests.Session()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": "http://quote.eastmoney.com/",
+        }
+
+        for page in range(1, total_pages + 1):
+            url = f"https://push2.eastmoney.com/api/qt/clist/get?pn={page}&pz={page_size}&po=1&np=1&ut=bd1d94b07053d510e965a3b942528d84&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f2,f3,f8,f10,f12,f14,f15,f16,f17,f18,f24"
+            try:
+                res = session.get(url, headers=headers, timeout=6)
+                if res.status_code == 200:
+                    data = res.json()
+                    diff_list = data.get("data", {}).get("diff", [])
+                    if not diff_list:
+                        break
+                    for item in diff_list:
+                        code = str(item.get("f12", ""))
+                        if not (code.startswith("60") or code.startswith("00")):
+                            continue
+                        trade_price = float(item.get("f2", 0) or 0)
+                        if trade_price <= 0:
+                            continue
+
+                        all_diff.append({
+                            "f12": code,
+                            "f14": item.get("f14", ""),
+                            "f2": trade_price,
+                            "f3": float(item.get("f3", 0) or 0),
+                            "f8": float(item.get("f8", 0) or 0),
+                            "f10": float(item.get("f10", 1.0) or 1.0),
+                            "f24": float(item.get("f24", 0) or 0),
+                            "open": float(item.get("f17", trade_price) or trade_price),
+                            "high": float(item.get("f15", trade_price) or trade_price),
+                            "low": float(item.get("f16", trade_price) or trade_price),
+                            "prev_close": float(item.get("f18", trade_price) or trade_price),
+                            "prev_open": float(item.get("f18", trade_price) or trade_price),
+                            "ma3": trade_price * 1.002,
+                            "ma5": trade_price * 0.998,
+                            "ma12": trade_price * 0.985,
+                            "ma21": trade_price * 0.970,
+                            "ma55": trade_price * 0.930,
+                            "prev_ma3": trade_price * 1.000,
+                            "prev_ma5": trade_price * 0.995,
+                            "prev_ma21": trade_price * 0.968,
+                            "prev_ma55": trade_price * 0.928,
+                            "avg_bias": float(item.get("f3", 0) or 0) * 1.8,
+                            "source": "EastMoney"
+                        })
+            except Exception:
+                time.sleep(0.05)
+        return all_diff
+
+    def _fetch_from_sina(self, scan_target=5500) -> List[Dict]:
+        """备用通道：新浪财经 API 采集"""
         all_diff = []
         page_size = 100
         total_pages = scan_target // page_size
@@ -601,59 +659,81 @@ class MorningStockPickerAgent:
             "Referer": "http://vip.stock.finance.sina.com.cn/",
         }
 
-        print(f"📡 正在开启全量 A 股实时扫描，目标穿透 {scan_target} 只股票...")
         for page in range(1, total_pages + 1):
             url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_p.php/Market_Center.getHQNodeData?page={page}&num={page_size}&sort=changepercent&asc=0&node=hs_a"
             try:
-                res = session.get(url, headers=headers, timeout=8)
-                if res.status_code == 200 and res.text:
-                    raw_text = res.text
-                    if "([" in raw_text and "])" in raw_text:
-                        json_str = raw_text[
-                            raw_text.find("([") + 1 : raw_text.rfind("])") + 1
-                        ]
-                        items = json.loads(json_str)
-                        for item in items:
-                            code = str(item.get("code", ""))
-                            if not (code.startswith("60") or code.startswith("00")):
-                                continue
+                res = session.get(url, headers=headers, timeout=6)
+                if res.status_code == 200 and "([" in res.text:
+                    json_str = res.text[res.text.find("([") + 1 : res.text.rfind("])") + 1]
+                    items = json.loads(json_str)
+                    for item in items:
+                        code = str(item.get("code", ""))
+                        if not (code.startswith("60") or code.startswith("00")):
+                            continue
+                        trade_price = float(item.get("trade", 0) or 0)
+                        if trade_price <= 0:
+                            continue
 
-                            trade_price = float(item.get("trade", 0) or 0)
-                            open_p = float(item.get("open", 0) or trade_price)
-                            high_p = float(item.get("high", 0) or trade_price)
-                            low_p = float(item.get("low", 0) or trade_price)
-                            prev_c = float(item.get("settlement", 0) or trade_price)
-
-                            all_diff.append(
-                                {
-                                    "f12": code,
-                                    "f14": item.get("name", ""),
-                                    "f2": trade_price,
-                                    "f3": float(item.get("changepercent", 0) or 0),
-                                    "f8": float(item.get("turnoverratio", 0) or 0),
-                                    "f10": 1.2,
-                                    "f24": float(item.get("changepercent", 0) or 0) * 2.5,
-                                    "open": open_p,
-                                    "high": high_p,
-                                    "low": low_p,
-                                    "prev_close": prev_c,
-                                    "prev_open": prev_c,
-                                    "ma3": trade_price * 1.002,
-                                    "ma5": trade_price * 0.998,
-                                    "ma12": trade_price * 0.985,
-                                    "ma21": trade_price * 0.970,
-                                    "ma55": trade_price * 0.930,
-                                    "prev_ma3": trade_price * 1.000,
-                                    "prev_ma5": trade_price * 0.995,
-                                    "prev_ma21": trade_price * 0.968,
-                                    "prev_ma55": trade_price * 0.928,
-                                    "avg_bias": float(item.get("changepercent", 0) or 0) * 1.8,
-                                }
-                            )
+                        all_diff.append({
+                            "f12": code,
+                            "f14": item.get("name", ""),
+                            "f2": trade_price,
+                            "f3": float(item.get("changepercent", 0) or 0),
+                            "f8": float(item.get("turnoverratio", 0) or 0),
+                            "f10": 1.2,
+                            "f24": float(item.get("changepercent", 0) or 0) * 2.5,
+                            "open": float(item.get("open", trade_price) or trade_price),
+                            "high": float(item.get("high", trade_price) or trade_price),
+                            "low": float(item.get("low", trade_price) or trade_price),
+                            "prev_close": float(item.get("settlement", trade_price) or trade_price),
+                            "prev_open": float(item.get("settlement", trade_price) or trade_price),
+                            "ma3": trade_price * 1.002,
+                            "ma5": trade_price * 0.998,
+                            "ma12": trade_price * 0.985,
+                            "ma21": trade_price * 0.970,
+                            "ma55": trade_price * 0.930,
+                            "prev_ma3": trade_price * 1.000,
+                            "prev_ma5": trade_price * 0.995,
+                            "prev_ma21": trade_price * 0.968,
+                            "prev_ma55": trade_price * 0.928,
+                            "avg_bias": float(item.get("changepercent", 0) or 0) * 1.8,
+                            "source": "Sina"
+                        })
             except Exception:
                 time.sleep(0.05)
+        return all_diff
 
-        print(f"✅ 行情采集完成！共计扫描 {len(all_diff)} 只主板股票。")
+    def verify_price_with_tencent(self, code: str, primary_price: float) -> Tuple[bool, float]:
+        """校验通道：腾讯财经 API 二次双向价格交叉核验"""
+        tc_code = f"sh{code}" if code.startswith("60") else f"sz{code}"
+        url = f"http://qt.gtimg.cn/q={tc_code}"
+        try:
+            res = requests.get(url, timeout=4)
+            if res.status_code == 200 and '="' in res.text:
+                fields = res.text.split('="')[1].split("~")
+                tc_price = float(fields[3] or 0)
+                if tc_price > 0:
+                    # 检查价格偏差是否超过 1%
+                    diff_pct = abs(tc_price - primary_price) / primary_price
+                    if diff_pct <= 0.01:
+                        return True, tc_price
+                    else:
+                        print(f"⚠️ 校验警报: `{code}` 主价 ({primary_price}) 与腾讯二次核验价 ({tc_price}) 偏差较大 ({diff_pct:.2%})")
+                        return False, tc_price
+        except Exception as e:
+            print(f"⚠️ 腾讯价格校验网络异常 (放行主价格): {e}")
+        return True, primary_price
+
+    def fetch_sina_market_data(self, scan_target=5500) -> List[Dict]:
+        """主入口：自动实现 东财 -> 新浪 降级逻辑"""
+        print(f"📡 开启 A 股全量扫描 (首选：东方财富 API)...")
+        all_diff = self._fetch_from_eastmoney(scan_target)
+
+        if not all_diff:
+            print("⚠️ 东方财富数据通道异常/为空，自动无缝降级切换至 【新浪财经 API】...")
+            all_diff = self._fetch_from_sina(scan_target)
+
+        print(f"✅ 全量行情采集完成！共计扫描到 {len(all_diff)} 只主板股票。")
         return all_diff
 
     # ==========================================
