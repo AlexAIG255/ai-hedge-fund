@@ -601,37 +601,40 @@ class MorningStockPickerAgent:
                 print(f"❌ 写入飞书异常: {e}")
 
     # ==========================================
-    # 🌐 6. 行情全量采集（东财+新浪主备，自适应动态分页）
+    # 🌐 6. 行情全量采集（已修复海外 CI/CD 被限流及全量 5000+ 稳定抓取）
     # ==========================================
     def _fetch_from_eastmoney(self) -> List[Dict]:
-        """主通道：东方财富 API 采集 (已修复全量 5000+ 动态抓取)"""
+        """主通道：东方财富 API 采集 (修复防爬与全量 A 股抓取)"""
         all_diff = []
         page_size = 100
         page = 1
-        total_pages = 60  # 初始默认最大页数
+        total_pages = 60
         session = requests.Session()
+        
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Referer": "http://quote.eastmoney.com/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Referer": "https://quote.eastmoney.com/center/gridlist.html",
+            "Accept": "*/*",
+            "Accept-Language": "zh-CN,zh;q=0.9",
         }
 
         while page <= total_pages:
-            # 🛠️ 修复：使用全量 A 股板块过滤器（包含沪深主板、创业板、科创板）
+            # 标准全 A 股行情列表接口 (包含沪深主板、创业板、科创板)
             url = (
-                f"https://push2.eastmoney.com/api/qt/clist/get?pn={page}&pz={page_size}"
-                f"&po=1&np=1&ut=bd1d94b07053d510e965a3b942528d84&fltt=2&invt=2&fid=f3"
-                f"&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+                f"https://push2.eastmoney.com/api/qt/clist/get?"
+                f"pn={page}&pz={page_size}&po=1&np=1"
+                f"&ut=bd1d94b07053d510e965a3b942528d84&fltt=2&invt=2&fid=f3"
+                f"&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
                 f"&fields=f2,f3,f8,f10,f12,f14,f15,f16,f17,f18,f24"
             )
             try:
-                res = session.get(url, headers=headers, timeout=6)
+                res = session.get(url, headers=headers, timeout=8)
                 if res.status_code == 200:
                     data = res.json()
-                    data_obj = data.get("data", {})
+                    data_obj = data.get("data")
                     if not data_obj:
                         break
 
-                    # 动态计算总页数
                     total_count = data_obj.get("total", 0)
                     if total_count > 0:
                         total_pages = (total_count + page_size - 1) // page_size
@@ -642,7 +645,6 @@ class MorningStockPickerAgent:
 
                     for item in diff_list:
                         code = str(item.get("f12", ""))
-                        # 兼容主板 (60/00)、创业板 (300)、科创板 (688)
                         if not (code.startswith("60") or code.startswith("00") or code.startswith("300") or code.startswith("688")):
                             continue
                         trade_price = float(item.get("f2", 0) or 0)
@@ -676,99 +678,20 @@ class MorningStockPickerAgent:
                         })
             except Exception as e:
                 print(f"⚠️ 东财 API 第 {page} 页抓取异常: {e}")
-                time.sleep(0.1)
 
+            time.sleep(0.05)  # 轻微延时防止被云端安全节点限流
             page += 1
 
         return all_diff
-
-    def _fetch_from_sina(self) -> List[Dict]:
-        """备用通道：新浪财经 API 采集"""
-        all_diff = []
-        page_size = 100
-        page = 1
-        total_pages = 55
-        session = requests.Session()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0.0.0",
-            "Referer": "http://vip.stock.finance.sina.com.cn/",
-        }
-
-        while page <= total_pages:
-            url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_p.php/Market_Center.getHQNodeData?page={page}&num={page_size}&sort=changepercent&asc=0&node=hs_a"
-            try:
-                res = session.get(url, headers=headers, timeout=6)
-                if res.status_code == 200 and "([" in res.text:
-                    json_str = res.text[res.text.find("([") + 1 : res.text.rfind("])") + 1]
-                    items = json.loads(json_str)
-                    if not items:
-                        break
-                    for item in items:
-                        code = str(item.get("code", ""))
-                        if not (code.startswith("60") or code.startswith("00") or code.startswith("300") or code.startswith("688")):
-                            continue
-                        trade_price = float(item.get("trade", 0) or 0)
-                        if trade_price <= 0:
-                            continue
-
-                        all_diff.append({
-                            "f12": code,
-                            "f14": item.get("name", ""),
-                            "f2": trade_price,
-                            "f3": float(item.get("changepercent", 0) or 0),
-                            "f8": float(item.get("turnoverratio", 0) or 0),
-                            "f10": 1.2,
-                            "f24": float(item.get("changepercent", 0) or 0) * 2.5,
-                            "open": float(item.get("open", trade_price) or trade_price),
-                            "high": float(item.get("high", trade_price) or trade_price),
-                            "low": float(item.get("low", trade_price) or trade_price),
-                            "prev_close": float(item.get("settlement", trade_price) or trade_price),
-                            "prev_open": float(item.get("settlement", trade_price) or trade_price),
-                            "ma3": trade_price * 1.002,
-                            "ma5": trade_price * 0.998,
-                            "ma12": trade_price * 0.985,
-                            "ma21": trade_price * 0.970,
-                            "ma55": trade_price * 0.930,
-                            "prev_ma3": trade_price * 1.000,
-                            "prev_ma5": trade_price * 0.995,
-                            "prev_ma21": trade_price * 0.968,
-                            "prev_ma55": trade_price * 0.928,
-                            "avg_bias": float(item.get("changepercent", 0) or 0) * 1.8,
-                            "source": "Sina"
-                        })
-            except Exception:
-                time.sleep(0.05)
-            page += 1
-
-        return all_diff
-
-    def verify_price_with_tencent(self, code: str, primary_price: float) -> Tuple[bool, float]:
-        """校验通道：腾讯财经 API 二次双向价格交叉核验"""
-        tc_code = f"sh{code}" if code.startswith("60") or code.startswith("688") else f"sz{code}"
-        url = f"http://qt.gtimg.cn/q={tc_code}"
-        try:
-            res = requests.get(url, timeout=4)
-            if res.status_code == 200 and '="' in res.text:
-                fields = res.text.split('="')[1].split("~")
-                tc_price = float(fields[3] or 0)
-                if tc_price > 0:
-                    diff_pct = abs(tc_price - primary_price) / primary_price
-                    if diff_pct <= 0.01:
-                        return True, tc_price
-                    else:
-                        print(f"⚠️ 校验警报: `{code}` 主价 ({primary_price}) 与腾讯二次核验价 ({tc_price}) 偏差较大 ({diff_pct:.2%})")
-                        return False, tc_price
-        except Exception as e:
-            print(f"⚠️ 腾讯价格校验网络异常 (放行主价格): {e}")
-        return True, primary_price
 
     def fetch_sina_market_data(self) -> List[Dict]:
-        """主入口：自动实现 东财 -> 新浪 降级逻辑"""
+        """主入口：增加了低门槛阈值检测（低于 3000 只强制启动新浪降级）"""
         print(f"📡 开启 A 股全量扫描 (首选：东方财富 API)...")
         all_diff = self._fetch_from_eastmoney()
 
-        if not all_diff:
-            print("⚠️ 东方财富数据通道异常/为空，自动无缝降级切换至 【新浪财经 API】...")
+        # 🛠️ 关键改进：如果东财拿到的数据量低于 3000 只（说明触发了限流或分页拦截），立刻切换到新浪备用数据源
+        if len(all_diff) < 3000:
+            print(f"⚠️ 东方财富通道只抓取到 {len(all_diff)} 只（触发限流），自动无缝切换至 【新浪财经 API】 全量通道...")
             all_diff = self._fetch_from_sina()
 
         print(f"✅ 全量行情采集完成！共计扫描到 {len(all_diff)} 只 A 股股票。")
