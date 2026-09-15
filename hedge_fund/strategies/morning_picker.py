@@ -1,7 +1,7 @@
 """
 Agent 1: 大盘早晚选股 Agent - 7大全策略选股模型集成 & 联动 Agent 3 动态风控过滤
 集成了全量 A 股抓取（5000+只）、7大核心量化选股（右侧启动/超跌反弹/出水芙蓉/买在无人问津处/多头向上的圆月线/超跌反包强势/底部放量反转）、
-严格控制涨幅 <= 5% 防追高、嵌入 Agent 3 (Risk Manager) 全球宏观风控与动态 ATR 止盈止损。
+严格控制涨幅 <= 5% 防追高、三层行情源容错与二次价格校验、嵌入 Agent 3 (Risk Manager) 全球宏观风控与动态 ATR 止盈止损。
 """
 
 import json
@@ -737,7 +737,7 @@ class MorningStockPickerAgent:
         return all_diff
 
     # ==========================================
-    # 📊 7. 核心策略选股引擎 (集成 Agent 3 风控)
+    # 📊 7. 核心策略选股引擎 (集成 Agent 3 风控与腾讯校验)
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
         self.run_postmortem_and_upgrade_skill()
@@ -822,7 +822,24 @@ class MorningStockPickerAgent:
             return [], [], ""
 
         # ----------------------------------------------------
-        # 🛡️ 关键衔接：将初步选出标的送入 Agent 3 风控引擎审核
+        # 🛡️ 1. 腾讯接口二次价格防伪校验
+        # ----------------------------------------------------
+        print("🔍 正在启动腾讯财经 API 进行二次价格防伪交叉校验...")
+        verified_candidates = []
+        for item in strategy_candidates:
+            is_valid, tc_price = self.verify_price_with_tencent(item["code"], item["price"])
+            if is_valid:
+                verified_candidates.append(item)
+            else:
+                print(f"🛡️ 剔除两端价格偏差过大标的: `{item['code']}` ({item['name']})")
+        
+        strategy_candidates = verified_candidates
+        if not strategy_candidates:
+            print("🛑 经过腾讯价格防伪校验后，无合格标的。")
+            return [], [], ""
+
+        # ----------------------------------------------------
+        # 🛡️ 2. 关键衔接：将初步选出标的送入 Agent 3 风控引擎审核
         # ----------------------------------------------------
         if self.risk_agent:
             approved_candidates, global_env = self.risk_agent.process_candidate_stocks(strategy_candidates)
