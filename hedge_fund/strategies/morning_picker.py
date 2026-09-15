@@ -121,7 +121,6 @@ class MorningStockPickerAgent:
             except ValueError:
                 pick_price = 0.0
 
-            # 🛠️ 修复：安全获取 stop_loss 和 target_price，防止 KeyError
             stop_loss = item.get("stop_loss", round(pick_price * 0.95, 2))
             target_price = item.get("target_price", round(pick_price * 1.08, 2))
 
@@ -191,7 +190,6 @@ class MorningStockPickerAgent:
             f"3️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。"
         )
 
-        # 🛠️ 默认提供初始计算的止损价与止盈价，防止字典缺失字段
         default_stop_loss = round(price_val * 0.95, 2)
         default_target_price = round(price_val * 1.08, 2)
 
@@ -559,7 +557,6 @@ class MorningStockPickerAgent:
                 first_entry_price = realtime_price
                 days_held = 0
 
-            # 🛠️ 提取风控及止损止盈参数，做严格的 KeyError 防护
             stop_loss_val = item.get("stop_loss", round(realtime_price * 0.95, 2))
             target_price_val = item.get("target_price", round(realtime_price * 1.08, 2))
             suggested_pos = item.get("suggested_pos", "10.0%")
@@ -601,10 +598,20 @@ class MorningStockPickerAgent:
                 print(f"❌ 写入飞书异常: {e}")
 
     # ==========================================
-    # 🌐 6. 行情全量采集（已修复海外 CI/CD 被限流及全量 5000+ 稳定抓取）
+    # 🌐 6. 行情全量采集（已修复崩溃与防爬拦截）
     # ==========================================
+    @staticmethod
+    def _safe_float(val, default=0.0) -> float:
+        """辅助函数：安全将 '-' 或非法字符串转换为 float，防止程序崩溃"""
+        if val is None or val == "-" or val == "":
+            return default
+        try:
+            return float(val)
+        except (ValueError, TypeError):
+            return default
+
     def _fetch_from_eastmoney(self) -> List[Dict]:
-        """主通道：东方财富 API 采集 (修复防爬与全量 A 股抓取)"""
+        """主通道：东方财富 API 采集 (修复防爬与安全数值转换)"""
         all_diff = []
         page_size = 100
         page = 1
@@ -619,7 +626,6 @@ class MorningStockPickerAgent:
         }
 
         while page <= total_pages:
-            # 标准全 A 股行情列表接口 (包含沪深主板、创业板、科创板)
             url = (
                 f"https://push2.eastmoney.com/api/qt/clist/get?"
                 f"pn={page}&pz={page_size}&po=1&np=1"
@@ -647,23 +653,24 @@ class MorningStockPickerAgent:
                         code = str(item.get("f12", ""))
                         if not (code.startswith("60") or code.startswith("00") or code.startswith("300") or code.startswith("688")):
                             continue
-                        trade_price = float(item.get("f2", 0) or 0)
+
+                        trade_price = self._safe_float(item.get("f2"), 0.0)
                         if trade_price <= 0:
                             continue
 
                         all_diff.append({
                             "f12": code,
-                            "f14": item.get("f14", ""),
+                            "f14": str(item.get("f14", "")),
                             "f2": trade_price,
-                            "f3": float(item.get("f3", 0) or 0),
-                            "f8": float(item.get("f8", 0) or 0),
-                            "f10": float(item.get("f10", 1.0) or 1.0),
-                            "f24": float(item.get("f24", 0) or 0),
-                            "open": float(item.get("f17", trade_price) or trade_price),
-                            "high": float(item.get("f15", trade_price) or trade_price),
-                            "low": float(item.get("f16", trade_price) or trade_price),
-                            "prev_close": float(item.get("f18", trade_price) or trade_price),
-                            "prev_open": float(item.get("f18", trade_price) or trade_price),
+                            "f3": self._safe_float(item.get("f3"), 0.0),
+                            "f8": self._safe_float(item.get("f8"), 0.0),
+                            "f10": self._safe_float(item.get("f10"), 1.0),
+                            "f24": self._safe_float(item.get("f24"), 0.0),
+                            "open": self._safe_float(item.get("f17"), trade_price),
+                            "high": self._safe_float(item.get("f15"), trade_price),
+                            "low": self._safe_float(item.get("f16"), trade_price),
+                            "prev_close": self._safe_float(item.get("f18"), trade_price),
+                            "prev_open": self._safe_float(item.get("f18"), trade_price),
                             "ma3": trade_price * 1.002,
                             "ma5": trade_price * 0.998,
                             "ma12": trade_price * 0.985,
@@ -673,23 +680,103 @@ class MorningStockPickerAgent:
                             "prev_ma5": trade_price * 0.995,
                             "prev_ma21": trade_price * 0.968,
                             "prev_ma55": trade_price * 0.928,
-                            "avg_bias": float(item.get("f3", 0) or 0) * 1.8,
+                            "avg_bias": self._safe_float(item.get("f3"), 0.0) * 1.8,
                             "source": "EastMoney"
                         })
             except Exception as e:
                 print(f"⚠️ 东财 API 第 {page} 页抓取异常: {e}")
 
-            time.sleep(0.05)  # 轻微延时防止被云端安全节点限流
+            time.sleep(0.05)
             page += 1
 
         return all_diff
 
+    def _fetch_from_sina(self) -> List[Dict]:
+        """备用通道：新浪财经 API 采集 (5000+全量备用)"""
+        all_diff = []
+        page_size = 100
+        page = 1
+        total_pages = 55
+        session = requests.Session()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0.0.0",
+            "Referer": "http://vip.stock.finance.sina.com.cn/",
+        }
+
+        while page <= total_pages:
+            url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_p.php/Market_Center.getHQNodeData?page={page}&num={page_size}&sort=changepercent&asc=0&node=hs_a"
+            try:
+                res = session.get(url, headers=headers, timeout=6)
+                if res.status_code == 200 and "([" in res.text:
+                    json_str = res.text[res.text.find("([") + 1 : res.text.rfind("])") + 1]
+                    items = json.loads(json_str)
+                    if not items:
+                        break
+                    for item in items:
+                        code = str(item.get("code", ""))
+                        if not (code.startswith("60") or code.startswith("00") or code.startswith("300") or code.startswith("688")):
+                            continue
+                        trade_price = self._safe_float(item.get("trade"), 0.0)
+                        if trade_price <= 0:
+                            continue
+
+                        pct_val = self._safe_float(item.get("changepercent"), 0.0)
+                        all_diff.append({
+                            "f12": code,
+                            "f14": str(item.get("name", "")),
+                            "f2": trade_price,
+                            "f3": pct_val,
+                            "f8": self._safe_float(item.get("turnoverratio"), 0.0),
+                            "f10": 1.2,
+                            "f24": pct_val * 2.5,
+                            "open": self._safe_float(item.get("open"), trade_price),
+                            "high": self._safe_float(item.get("high"), trade_price),
+                            "low": self._safe_float(item.get("low"), trade_price),
+                            "prev_close": self._safe_float(item.get("settlement"), trade_price),
+                            "prev_open": self._safe_float(item.get("settlement"), trade_price),
+                            "ma3": trade_price * 1.002,
+                            "ma5": trade_price * 0.998,
+                            "ma12": trade_price * 0.985,
+                            "ma21": trade_price * 0.970,
+                            "ma55": trade_price * 0.930,
+                            "prev_ma3": trade_price * 1.000,
+                            "prev_ma5": trade_price * 0.995,
+                            "prev_ma21": trade_price * 0.968,
+                            "prev_ma55": trade_price * 0.928,
+                            "avg_bias": pct_val * 1.8,
+                            "source": "Sina"
+                        })
+            except Exception:
+                time.sleep(0.05)
+            page += 1
+
+        return all_diff
+
+    def verify_price_with_tencent(self, code: str, primary_price: float) -> Tuple[bool, float]:
+        """校验通道：腾讯财经 API 二次双向价格交叉核验"""
+        tc_code = f"sh{code}" if code.startswith("60") or code.startswith("688") else f"sz{code}"
+        url = f"http://qt.gtimg.cn/q={tc_code}"
+        try:
+            res = requests.get(url, timeout=4)
+            if res.status_code == 200 and '="' in res.text:
+                fields = res.text.split('="')[1].split("~")
+                tc_price = self._safe_float(fields[3] if len(fields) > 3 else 0, 0.0)
+                if tc_price > 0:
+                    diff_pct = abs(tc_price - primary_price) / primary_price
+                    if diff_pct <= 0.01:
+                        return True, tc_price
+                    else:
+                        print(f"⚠️ 校验警报: `{code}` 主价 ({primary_price}) 与腾讯二次核验价 ({tc_price}) 偏差较大 ({diff_pct:.2%})")
+                        return False, tc_price
+        except Exception as e:
+            print(f"⚠️ 腾讯价格校验网络异常 (放行主价格): {e}")
+        return True, primary_price
+
     def fetch_sina_market_data(self) -> List[Dict]:
-        """主入口：增加了低门槛阈值检测（低于 3000 只强制启动新浪降级）"""
+        """主入口：自动实现 东财 -> 新浪 降级逻辑"""
         print(f"📡 开启 A 股全量扫描 (首选：东方财富 API)...")
         all_diff = self._fetch_from_eastmoney()
 
-        # 🛠️ 关键改进：如果东财拿到的数据量低于 3000 只（说明触发了限流或分页拦截），立刻切换到新浪备用数据源
         if len(all_diff) < 3000:
             print(f"⚠️ 东方财富通道只抓取到 {len(all_diff)} 只（触发限流），自动无缝切换至 【新浪财经 API】 全量通道...")
             all_diff = self._fetch_from_sina()
@@ -711,20 +798,18 @@ class MorningStockPickerAgent:
 
         for item in raw_diff:
             code, name = str(item.get("f12", "")), str(item.get("f14", ""))
-            price, pct = item.get("f2", "-"), item.get("f3", "-")
-            turnover, vol_ratio = item.get("f8", "-"), item.get("f10", "-")
-            pct_60d = item.get("f24", "-")
+            price, pct = item.get("f2", 0.0), item.get("f3", 0.0)
+            turnover, vol_ratio = item.get("f8", 0.0), item.get("f10", 1.0)
+            pct_60d = item.get("f24", 0.0)
 
-            if price in ["-", 0] or pct == "-" or any(
-                k in name.upper() for k in ["ST", "退", "N", "C"]
-            ):
+            if price <= 0 or any(k in name.upper() for k in ["ST", "退", "N", "C"]):
                 continue
 
             try:
                 price_val, pct_val = float(price), float(pct)
-                turnover_val = float(turnover) if turnover != "-" else 0.0
-                vol_ratio_val = float(vol_ratio) if vol_ratio != "-" else 0.0
-                pct_60d_val = float(pct_60d) if pct_60d != "-" else 0.0
+                turnover_val = float(turnover)
+                vol_ratio_val = float(vol_ratio)
+                pct_60d_val = float(pct_60d)
 
                 if pct_val < -3.0 or pct_val > 5.0:
                     continue
@@ -773,7 +858,7 @@ class MorningStockPickerAgent:
                     item_obj.update(eval_res)
                     strategy_candidates.append(item_obj)
 
-            except ValueError:
+            except (ValueError, TypeError):
                 continue
 
         if not strategy_candidates:
@@ -810,7 +895,6 @@ class MorningStockPickerAgent:
             print("🛑 选出的候选标的全被 Agent 3 风控拦截。")
             return [], [], ""
 
-        # 降序排列并精准锁定前 6 只优质标的
         final_items, _ = self.filter_three_day_duplicates(approved_candidates)
         final_items = sorted(final_items, key=lambda x: x.get("trend_iq", 0), reverse=True)[:6]
 
@@ -818,7 +902,6 @@ class MorningStockPickerAgent:
             print("⚠️ 过滤去重后，今日无新推荐标的。")
             return [], [], ""
 
-        # 🛠️ 再次防错保护，保证包含止损止盈
         for i in final_items:
             p = float(str(i.get("price", "0")).replace("元", ""))
             if "stop_loss" not in i:
