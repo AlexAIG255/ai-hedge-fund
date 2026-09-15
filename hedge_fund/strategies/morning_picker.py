@@ -496,38 +496,87 @@ class MorningStockPickerAgent:
         existing_stocks = {}
         existing_keys = set()
 
-        list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
+     def sync_to_feishu(self, selected_items: List[Dict]):
+        """同步选中股票至飞书多维表格（支持全量分页、动态收益计算与分批安全写入）"""
+        if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
+            print("⚠️ 未配置完整飞书环境变量，跳过飞书同步。")
+            return
+
+        # 1. 动态获取 Tenant Access Token
+        auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         try:
-            res_list = requests.get(list_url, headers=headers, params={"page_size": 500}, timeout=10)
-            if res_list.status_code == 200:
-                data = res_list.json()
-                items = data.get("data", {}).get("items", [])
-
-                for r in items:
-                    fields = r.get("fields", {})
-                    rec_code = str(fields.get("股票代码", "")).strip()
-                    rec_date_raw = fields.get("推荐日期")
-                    entry_price_raw = fields.get("建仓价格", 0.0)
-
-                    if isinstance(rec_date_raw, (int, float)):
-                        rec_date_str = datetime.fromtimestamp(rec_date_raw / 1000).strftime("%Y-%m-%d")
-                    else:
-                        rec_date_str = str(rec_date_raw)
-
-                    if rec_code:
-                        existing_keys.add(f"{rec_date_str}_{rec_code}")
-                        if rec_code not in existing_stocks:
-                            try:
-                                entry_p = float(entry_price_raw)
-                            except ValueError:
-                                entry_p = 0.0
-                            existing_stocks[rec_code] = {
-                                "first_entry_price": entry_p,
-                                "first_entry_date": rec_date_str,
-                            }
+            res_auth = requests.post(
+                auth_url,
+                json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
+                timeout=10,
+            )
+            access_token = res_auth.json().get("tenant_access_token", "")
+            if not access_token:
+                print("❌ 获取飞书 Access Token 失败。")
+                return
         except Exception as e:
-            print(f"⚠️ 查询飞书历史数据异常: {e}")
+            print(f"❌ 飞书鉴权网络请求异常: {e}")
+            return
 
+        headers = {
+            "Content-Type": "application/json; charset=utf-8",
+            "Authorization": f"Bearer {access_token}",
+        }
+
+        # 2. 全量分页读取飞书历史数据（解决 > 500 条记录截断问题）
+        existing_stocks = {}
+        existing_keys = set()
+        page_token = ""
+        has_more = True
+
+        while has_more:
+            list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
+            params = {"page_size": 500}
+            if page_token:
+                params["page_token"] = page_token
+
+            try:
+                res_list = requests.get(list_url, headers=headers, params=params, timeout=10)
+                if res_list.status_code == 200:
+                    data = res_list.json().get("data", {})
+                    items = data.get("items", [])
+                    has_more = data.get("has_more", False)
+                    page_token = data.get("page_token", "")
+
+                    for r in items:
+                        fields = r.get("fields", {})
+                        rec_code = str(fields.get("股票代码", "")).strip()
+                        rec_date_raw = fields.get("推荐日期")
+                        entry_price_raw = fields.get("建仓价格", 0.0)
+
+                        # 安全解析日期格式
+                        if isinstance(rec_date_raw, (int, float)):
+                            rec_date_str = datetime.fromtimestamp(rec_date_raw / 1000).strftime("%Y-%m-%d")
+                        elif isinstance(rec_date_raw, str):
+                            rec_date_str = rec_date_raw.split("T")[0]
+                        else:
+                            rec_date_str = ""
+
+                        if rec_code:
+                            if rec_date_str:
+                                existing_keys.add(f"{rec_date_str}_{rec_code}")
+                            if rec_code not in existing_stocks:
+                                try:
+                                    entry_p = float(entry_price_raw)
+                                except (ValueError, TypeError):
+                                    entry_p = 0.0
+                                existing_stocks[rec_code] = {
+                                    "first_entry_price": entry_p,
+                                    "first_entry_date": rec_date_str,
+                                }
+                else:
+                    print(f"⚠️ 查询飞书历史数据响应异常: Status {res_list.status_code}")
+                    break
+            except Exception as e:
+                print(f"⚠️ 查询飞书历史数据抛出异常: {e}")
+                break
+
+        # 3. 构建待同步数据，计算持股天数与真实收益率
         today_dt = datetime.now()
         today_timestamp = int(today_dt.timestamp() * 1000)
         today_ymd_str = today_dt.strftime("%Y-%m-%d")
@@ -543,9 +592,10 @@ class MorningStockPickerAgent:
 
             try:
                 realtime_price = float(str(item.get("price", "0")).replace("元", ""))
-            except ValueError:
+            except (ValueError, TypeError):
                 realtime_price = 0.0
 
+            # 确定首次建仓价格与持股天数
             if stock_code in existing_stocks and existing_stocks[stock_code]["first_entry_price"] > 0:
                 first_entry_price = existing_stocks[stock_code]["first_entry_price"]
                 first_date_str = existing_stocks[stock_code]["first_entry_date"]
@@ -557,6 +607,13 @@ class MorningStockPickerAgent:
             else:
                 first_entry_price = realtime_price
                 days_held = 0
+
+            # 动态计算持仓收益率
+            if first_entry_price > 0:
+                yield_ratio = ((realtime_price - first_entry_price) / first_entry_price) * 100
+                yield_str = f"{yield_ratio:+.2f}%"
+            else:
+                yield_str = "0.00%"
 
             stop_loss_val = item.get("stop_loss", round(realtime_price * 0.95, 2))
             target_price_val = item.get("target_price", round(realtime_price * 1.08, 2))
@@ -572,7 +629,7 @@ class MorningStockPickerAgent:
                         "策略桶": str(item.get("strategy", "底部反转")),
                         "建仓价格": first_entry_price,
                         "最新收盘价": realtime_price,
-                        "持仓收益率": "0.00%",
+                        "持仓收益率": yield_str,
                         "持股天数": days_held,
                         "状态": "持仓中",
                         "TrendIQ评分": int(item.get("trend_iq", 80)),
@@ -581,22 +638,31 @@ class MorningStockPickerAgent:
                 }
             )
 
+        # 4. 分批写入飞书（每批最多 100 条）
         if records:
             batch_create_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
-            try:
-                res = requests.post(
-                    batch_create_url,
-                    headers=headers,
-                    json={"records": records},
-                    timeout=10,
-                )
-                res_data = res.json()
-                if res_data.get("code") == 0:
-                    print(f"🎉 成功同步 {len(records)} 条新记录至飞书表格！")
-                else:
-                    print(f"❌ 写入飞书失败: {res_data}")
-            except Exception as e:
-                print(f"❌ 写入飞书异常: {e}")
+            chunk_size = 100
+            success_count = 0
+
+            for i in range(0, len(records), chunk_size):
+                chunk = records[i : i + chunk_size]
+                try:
+                    res = requests.post(
+                        batch_create_url,
+                        headers=headers,
+                        json={"records": chunk},
+                        timeout=10,
+                    )
+                    res_data = res.json()
+                    if res_data.get("code") == 0:
+                        success_count += len(chunk)
+                    else:
+                        print(f"❌ 批次 {i//chunk_size + 1} 写入飞书失败: {res_data}")
+                except Exception as e:
+                    print(f"❌ 写入飞书请求异常: {e}")
+
+            if success_count > 0:
+                print(f"🎉 成功同步 {success_count} 条新记录至飞书多维表格！")
 
     # ==========================================
     # 🌐 6. 行情全量采集 (换用腾讯无敌全量节点 + 备用东财大盘节点)
