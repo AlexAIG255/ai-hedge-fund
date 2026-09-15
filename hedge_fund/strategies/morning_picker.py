@@ -6,6 +6,7 @@ Agent 1: 大盘早晚选股 Agent - 7大全策略选股模型集成 & 联动 Age
 
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -387,7 +388,7 @@ class MorningStockPickerAgent:
 
             tc_code = (
                 f"sh{item['code']}"
-                if item["code"].startswith("60")
+                if (item["code"].startswith("60") or item["code"].startswith("688"))
                 else f"sz{item['code']}"
             )
             try:
@@ -596,8 +597,9 @@ class MorningStockPickerAgent:
                     print(f"❌ 写入飞书失败: {res_data}")
             except Exception as e:
                 print(f"❌ 写入飞书异常: {e}")
+
     # ==========================================
-    # 🌐 6. 行情全量采集（终极防拦截 + 三重通道保底）
+    # 🌐 6. 行情全量采集（防拦截分批延时 + 三重通道降级 + 腾讯实时价防伪）
     # ==========================================
     @staticmethod
     def _safe_float(val, default=0.0) -> float:
@@ -608,37 +610,47 @@ class MorningStockPickerAgent:
         except (ValueError, TypeError):
             return default
 
-    def _fetch_from_eastmoney(self) -> List[Dict]:
-        """通道 1：东方财富 API (大单页 500 条/页 + 随机 User-Agent 防封)"""
+    def _fetch_from_eastmoney(self, scan_target=5000) -> List[Dict]:
+        """通道 1：东方财富 API (动态毫秒戳破缓存 + 增加 0.25s 延时规避海外 IP 拦截)"""
         all_diff = []
-        page_size = 500  # 增大单页数量，仅需 10~11 次请求即可全量抓取
+        page_size = 500  # 大单页请求，降低 API 访问频次
+        total_pages = (scan_target + page_size - 1) // page_size
         session = requests.Session()
-        
+
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-            "Referer": "https://quote.eastmoney.com/",
+            "Referer": "https://quote.eastmoney.com/center/gridlist.html",
+            "Cache-Control": "no-cache",
             "Accept": "*/*"
         }
 
-        for page in range(1, 15):
-            url = (
-                f"https://push2.eastmoney.com/api/qt/clist/get?"
-                f"pn={page}&pz={page_size}&po=1&np=1"
-                f"&ut=bd1d94b07053d510e965a3b942528d84&fltt=2&invt=2&fid=f3"
-                f"&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23"
-                f"&fields=f2,f3,f8,f10,f12,f14,f15,f16,f17,f18,f24"
-            )
+        for page in range(1, total_pages + 1):
+            url = "https://push2.eastmoney.com/api/qt/clist/get"
+            params = {
+                "pn": str(page),
+                "pz": str(page_size),
+                "po": "1",
+                "np": "1",
+                "ut": "bd1d94b07053d510e965a3b942528d84",
+                "fltt": "2",
+                "invt": "2",
+                "fid": "f3",
+                "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",  # 修正 fs 字符串避免被编码空格截断
+                "fields": "f2,f3,f8,f10,f12,f14,f15,f16,f17,f18,f24",
+                "_": str(int(time.time() * 1000)),  # 防缓存时间戳
+            }
             try:
-                res = session.get(url, headers=headers, timeout=10)
+                res = session.get(url, params=params, headers=headers, timeout=10)
                 if res.status_code == 200:
-                    data = res.json()
-                    data_obj = data.get("data")
+                    data_obj = res.json().get("data")
                     if not data_obj:
-                        break
+                        time.sleep(0.3)
+                        continue
 
                     diff_list = data_obj.get("diff", [])
                     if not diff_list or len(diff_list) == 0:
-                        break
+                        time.sleep(0.3)
+                        continue
 
                     for item in diff_list:
                         code = str(item.get("f12", ""))
@@ -675,15 +687,14 @@ class MorningStockPickerAgent:
                             "source": "EastMoney"
                         })
             except Exception as e:
-                print(f"⚠️ 东财 API 第 {page} 页抓取异常: {e}")
+                print(f"⚠️ 东财 API 第 {page} 页抓取遭遇波动 ({e})，继续尝试...")
 
-            time.sleep(0.3)  # 请求间延时，规避 IP 限流
+            time.sleep(0.25)  # 节点微延时规避 Cloudflare/云端防刷
 
         return all_diff
 
     def _fetch_from_sina(self) -> List[Dict]:
         """通道 2：新浪财经 API (使用容错正则解析 JSON，解决 Syntax Error)"""
-        import re
         all_diff = []
         page_size = 100
         session = requests.Session()
@@ -698,7 +709,7 @@ class MorningStockPickerAgent:
                 res = session.get(url, headers=headers, timeout=8)
                 if res.status_code == 200 and len(res.text) > 20:
                     text = res.text
-                    # 修复新浪非标准 JSON 格式 (如 [{code:"sh600000",name:"..."}])
+                    # 修复新浪非标准 JS 对象格式 (key 补全双引号)
                     text = re.sub(r'([{,])([a-zA-Z0-9_]+):', r'\1"\2":', text)
                     if "([" in text:
                         text = text[text.find("([") + 1 : text.rfind("])") + 1]
@@ -753,7 +764,7 @@ class MorningStockPickerAgent:
         return all_diff
 
     def verify_price_with_tencent(self, code: str, primary_price: float) -> Tuple[bool, float]:
-        """校验通道：腾讯财经 API 实时价格双向强校验"""
+        """校验通道：腾讯财经 API 实时价格双向强校验 (支持 60/00/300/688 板块)"""
         tc_code = f"sh{code}" if (code.startswith("60") or code.startswith("688")) else f"sz{code}"
         url = f"http://qt.gtimg.cn/q={tc_code}"
         try:
@@ -766,7 +777,7 @@ class MorningStockPickerAgent:
                     return False, primary_price
 
                 diff_pct = abs(tc_price - primary_price) / primary_price
-                if diff_pct <= 0.015:  # 允许 1.5% 以内的轻微延迟盘口波动
+                if diff_pct <= 0.015:  # 允许 1.5% 内的微幅跳动
                     return True, tc_price
                 else:
                     print(f"⚠️ 价格校验不一致: `{code}` 主价 ({primary_price}) vs 腾讯实时价 ({tc_price})")
@@ -787,7 +798,6 @@ class MorningStockPickerAgent:
 
         print(f"✅ 全量行情采集完成！共计扫描到 {len(all_diff)} 只 A 股股票。")
         return all_diff
-
 
     # ==========================================
     # 📊 7. 核心策略选股引擎 (集成 Agent 3 风控与腾讯校验)
