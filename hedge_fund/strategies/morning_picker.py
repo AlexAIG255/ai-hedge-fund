@@ -598,7 +598,7 @@ class MorningStockPickerAgent:
                 print(f"❌ 写入飞书异常: {e}")
 
     # ==========================================
-    # 🌐 6. 行情全量采集（已修复崩溃与防爬拦截）
+    # 🌐 6. 行情全量采集（已加入分批延迟降权与腾讯实时最新价校验）
     # ==========================================
     @staticmethod
     def _safe_float(val, default=0.0) -> float:
@@ -611,7 +611,7 @@ class MorningStockPickerAgent:
             return default
 
     def _fetch_from_eastmoney(self) -> List[Dict]:
-        """主通道：东方财富 API 采集 (修复防爬与安全数值转换)"""
+        """主通道：东方财富 API 采集 (增加分批延迟与防拦截机制)"""
         all_diff = []
         page_size = 100
         page = 1
@@ -686,27 +686,30 @@ class MorningStockPickerAgent:
             except Exception as e:
                 print(f"⚠️ 东财 API 第 {page} 页抓取异常: {e}")
 
-            time.sleep(0.05)
+            # 🛠️ 节点调整：加入 0.2s 延迟分批降权，降低 API 频控拦截概率
+            time.sleep(0.2)
             page += 1
 
         return all_diff
 
     def _fetch_from_sina(self) -> List[Dict]:
-        """备用通道：新浪财经 API 采集 (5000+全量备用)"""
+        """备用通道：新浪财经 API 采集 (修复请求头与分批延迟防拦截)"""
         all_diff = []
-        page_size = 100
+        page_size = 80
         page = 1
-        total_pages = 55
+        total_pages = 70
         session = requests.Session()
+        
         headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0.0.0",
-            "Referer": "http://vip.stock.finance.sina.com.cn/",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+            "Referer": "http://vip.stock.finance.sina.com.cn/mkt/",
+            "Accept": "*/*"
         }
 
         while page <= total_pages:
             url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_p.php/Market_Center.getHQNodeData?page={page}&num={page_size}&sort=changepercent&asc=0&node=hs_a"
             try:
-                res = session.get(url, headers=headers, timeout=6)
+                res = session.get(url, headers=headers, timeout=8)
                 if res.status_code == 200 and "([" in res.text:
                     json_str = res.text[res.text.find("([") + 1 : res.text.rfind("])") + 1]
                     items = json.loads(json_str)
@@ -746,37 +749,52 @@ class MorningStockPickerAgent:
                             "avg_bias": pct_val * 1.8,
                             "source": "Sina"
                         })
-            except Exception:
-                time.sleep(0.05)
+            except Exception as e:
+                print(f"⚠️ 新浪 API 第 {page} 页抓取异常: {e}")
+            
+            # 🛠️ 节点调整：新浪 API 防刷限制较严，每次翻页延迟 0.35s 降低拦截概率
+            time.sleep(0.35)
             page += 1
 
         return all_diff
 
     def verify_price_with_tencent(self, code: str, primary_price: float) -> Tuple[bool, float]:
-        """校验通道：腾讯财经 API 二次双向价格交叉核验"""
-        tc_code = f"sh{code}" if code.startswith("60") or code.startswith("688") else f"sz{code}"
+        """校验通道：腾讯财经 API 二次实时最新价强校验"""
+        tc_code = f"sh{code}" if (code.startswith("60") or code.startswith("688")) else f"sz{code}"
         url = f"http://qt.gtimg.cn/q={tc_code}"
         try:
-            res = requests.get(url, timeout=4)
+            res = requests.get(url, timeout=5)
             if res.status_code == 200 and '="' in res.text:
                 fields = res.text.split('="')[1].split("~")
+                
+                # 校验最新价（第 3 位为实时最新成交价）
                 tc_price = self._safe_float(fields[3] if len(fields) > 3 else 0, 0.0)
-                if tc_price > 0:
-                    diff_pct = abs(tc_price - primary_price) / primary_price
-                    if diff_pct <= 0.01:
-                        return True, tc_price
-                    else:
-                        print(f"⚠️ 校验警报: `{code}` 主价 ({primary_price}) 与腾讯二次核验价 ({tc_price}) 偏差较大 ({diff_pct:.2%})")
-                        return False, tc_price
+                # 校验昨日收盘价（第 4 位为昨收价）
+                prev_close = self._safe_float(fields[4] if len(fields) > 4 else 0, 0.0)
+                
+                # 1️⃣ 校验腾讯接口价格有效性 (不能为 0，且最新价需真实存在)
+                if tc_price <= 0:
+                    print(f"⚠️ 腾讯实时价格校验失败: `{code}` 返回无效价格 {tc_price}")
+                    return False, primary_price
+
+                # 2️⃣ 交叉对比主数据源价格与腾讯实时最新价偏差 (偏差不高于 1%)
+                diff_pct = abs(tc_price - primary_price) / primary_price
+                if diff_pct <= 0.01:
+                    return True, tc_price
+                else:
+                    print(f"⚠️ 价格滞后/偏差警报: `{code}` 主价 ({primary_price}) 与腾讯实时最新价 ({tc_price}) 偏差较大 ({diff_pct:.2%})")
+                    return False, tc_price
         except Exception as e:
-            print(f"⚠️ 腾讯价格校验网络异常 (放行主价格): {e}")
+            print(f"⚠️ 腾讯实时价格校验网络异常 (放行主价格): {e}")
+            
         return True, primary_price
 
     def fetch_sina_market_data(self) -> List[Dict]:
-        """主入口：自动实现 东财 -> 新浪 降级逻辑"""
+        """主入口：东财 + 新浪 双通道保底获取"""
         print(f"📡 开启 A 股全量扫描 (首选：东方财富 API)...")
         all_diff = self._fetch_from_eastmoney()
 
+        # 🛠️ 节点调整：如果东财拉取少于 3000 只，启动新浪全量降级通道
         if len(all_diff) < 3000:
             print(f"⚠️ 东方财富通道只抓取到 {len(all_diff)} 只（触发限流），自动无缝切换至 【新浪财经 API】 全量通道...")
             all_diff = self._fetch_from_sina()
