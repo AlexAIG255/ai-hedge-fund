@@ -121,6 +121,7 @@ class MorningStockPickerAgent:
             except ValueError:
                 pick_price = 0.0
 
+            # 🛠️ 修复：安全获取 stop_loss 和 target_price，防止 KeyError
             stop_loss = item.get("stop_loss", round(pick_price * 0.95, 2))
             target_price = item.get("target_price", round(pick_price * 1.08, 2))
 
@@ -190,12 +191,18 @@ class MorningStockPickerAgent:
             f"3️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。"
         )
 
+        # 🛠️ 默认提供初始计算的止损价与止盈价，防止字典缺失字段
+        default_stop_loss = round(price_val * 0.95, 2)
+        default_target_price = round(price_val * 1.08, 2)
+
         return {
             "risk_stars": risk_stars,
             "risk_display": "⭐" * risk_stars,
             "trend_iq": trend_iq,
             "trend_iq_analysis": diagnosis_text,
             "entry_range": f"{entry_low}~{entry_high}元",
+            "stop_loss": default_stop_loss,
+            "target_price": default_target_price,
             "pass_risk": (risk_stars < 4) and (trend_iq >= 80),
         }
 
@@ -335,8 +342,8 @@ class MorningStockPickerAgent:
             ):
                 try:
                     price_val = float(str(item["price"]).replace("元", ""))
-                    stop_loss_val = float(item["stop_loss"])
-                    target_val = float(item["target_price"])
+                    stop_loss_val = float(item.get("stop_loss", round(price_val * 0.95, 2)))
+                    target_val = float(item.get("target_price", round(price_val * 1.08, 2)))
                 except Exception:
                     continue
 
@@ -455,7 +462,7 @@ class MorningStockPickerAgent:
             print(f"❌ 写入 Postmortem 文件失败: {e}")
 
     # ==========================================
-    # 📊 5. 飞书多维表格 API 同步
+    # 📊 5. 飞书多维表格 API 同步 (修复了报错安全校验)
     # ==========================================
     def sync_to_feishu(self, selected_items: List[Dict]):
         if not (
@@ -552,6 +559,11 @@ class MorningStockPickerAgent:
                 first_entry_price = realtime_price
                 days_held = 0
 
+            # 🛠️ 提取风控及止损止盈参数，做严格的 KeyError 防护
+            stop_loss_val = item.get("stop_loss", round(realtime_price * 0.95, 2))
+            target_price_val = item.get("target_price", round(realtime_price * 1.08, 2))
+            suggested_pos = item.get("suggested_pos", "10.0%")
+
             records.append(
                 {
                     "fields": {
@@ -566,7 +578,7 @@ class MorningStockPickerAgent:
                         "持股天数": days_held,
                         "状态": "持仓中",
                         "TrendIQ评分": int(item.get("trend_iq", 80)),
-                        "胜负归因": f"[建议仓位 {item.get('suggested_pos', '10%')}] 止损:{item.get('stop_loss')}元/止盈:{item.get('target_price')}元",
+                        "胜负归因": f"[建议仓位 {suggested_pos}] 止损:{stop_loss_val}元/止盈:{target_price_val}元",
                     }
                 }
             )
@@ -589,31 +601,49 @@ class MorningStockPickerAgent:
                 print(f"❌ 写入飞书异常: {e}")
 
     # ==========================================
-    # 🌐 6. 行情全量采集（东财+新浪主备，腾讯二次价格校验）
+    # 🌐 6. 行情全量采集（东财+新浪主备，自适应动态分页）
     # ==========================================
-    def _fetch_from_eastmoney(self, scan_target=5500) -> List[Dict]:
-        """主通道：东方财富 API 采集"""
+    def _fetch_from_eastmoney(self) -> List[Dict]:
+        """主通道：东方财富 API 采集 (已修复全量 5000+ 动态抓取)"""
         all_diff = []
         page_size = 100
-        total_pages = scan_target // page_size
+        page = 1
+        total_pages = 60  # 初始默认最大页数
         session = requests.Session()
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": "http://quote.eastmoney.com/",
         }
 
-        for page in range(1, total_pages + 1):
-            url = f"https://push2.eastmoney.com/api/qt/clist/get?pn={page}&pz={page_size}&po=1&np=1&ut=bd1d94b07053d510e965a3b942528d84&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f2,f3,f8,f10,f12,f14,f15,f16,f17,f18,f24"
+        while page <= total_pages:
+            # 🛠️ 修复：使用全量 A 股板块过滤器（包含沪深主板、创业板、科创板）
+            url = (
+                f"https://push2.eastmoney.com/api/qt/clist/get?pn={page}&pz={page_size}"
+                f"&po=1&np=1&ut=bd1d94b07053d510e965a3b942528d84&fltt=2&invt=2&fid=f3"
+                f"&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23,m:0+t:81+s:2048"
+                f"&fields=f2,f3,f8,f10,f12,f14,f15,f16,f17,f18,f24"
+            )
             try:
                 res = session.get(url, headers=headers, timeout=6)
                 if res.status_code == 200:
                     data = res.json()
-                    diff_list = data.get("data", {}).get("diff", [])
+                    data_obj = data.get("data", {})
+                    if not data_obj:
+                        break
+
+                    # 动态计算总页数
+                    total_count = data_obj.get("total", 0)
+                    if total_count > 0:
+                        total_pages = (total_count + page_size - 1) // page_size
+
+                    diff_list = data_obj.get("diff", [])
                     if not diff_list:
                         break
+
                     for item in diff_list:
                         code = str(item.get("f12", ""))
-                        if not (code.startswith("60") or code.startswith("00")):
+                        # 兼容主板 (60/00)、创业板 (300)、科创板 (688)
+                        if not (code.startswith("60") or code.startswith("00") or code.startswith("300") or code.startswith("688")):
                             continue
                         trade_price = float(item.get("f2", 0) or 0)
                         if trade_price <= 0:
@@ -644,31 +674,38 @@ class MorningStockPickerAgent:
                             "avg_bias": float(item.get("f3", 0) or 0) * 1.8,
                             "source": "EastMoney"
                         })
-            except Exception:
-                time.sleep(0.05)
+            except Exception as e:
+                print(f"⚠️ 东财 API 第 {page} 页抓取异常: {e}")
+                time.sleep(0.1)
+
+            page += 1
+
         return all_diff
 
-    def _fetch_from_sina(self, scan_target=5500) -> List[Dict]:
+    def _fetch_from_sina(self) -> List[Dict]:
         """备用通道：新浪财经 API 采集"""
         all_diff = []
         page_size = 100
-        total_pages = scan_target // page_size
+        page = 1
+        total_pages = 55
         session = requests.Session()
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/128.0.0.0",
             "Referer": "http://vip.stock.finance.sina.com.cn/",
         }
 
-        for page in range(1, total_pages + 1):
+        while page <= total_pages:
             url = f"http://vip.stock.finance.sina.com.cn/quotes_service/api/json_p.php/Market_Center.getHQNodeData?page={page}&num={page_size}&sort=changepercent&asc=0&node=hs_a"
             try:
                 res = session.get(url, headers=headers, timeout=6)
                 if res.status_code == 200 and "([" in res.text:
                     json_str = res.text[res.text.find("([") + 1 : res.text.rfind("])") + 1]
                     items = json.loads(json_str)
+                    if not items:
+                        break
                     for item in items:
                         code = str(item.get("code", ""))
-                        if not (code.startswith("60") or code.startswith("00")):
+                        if not (code.startswith("60") or code.startswith("00") or code.startswith("300") or code.startswith("688")):
                             continue
                         trade_price = float(item.get("trade", 0) or 0)
                         if trade_price <= 0:
@@ -701,11 +738,13 @@ class MorningStockPickerAgent:
                         })
             except Exception:
                 time.sleep(0.05)
+            page += 1
+
         return all_diff
 
     def verify_price_with_tencent(self, code: str, primary_price: float) -> Tuple[bool, float]:
         """校验通道：腾讯财经 API 二次双向价格交叉核验"""
-        tc_code = f"sh{code}" if code.startswith("60") else f"sz{code}"
+        tc_code = f"sh{code}" if code.startswith("60") or code.startswith("688") else f"sz{code}"
         url = f"http://qt.gtimg.cn/q={tc_code}"
         try:
             res = requests.get(url, timeout=4)
@@ -713,7 +752,6 @@ class MorningStockPickerAgent:
                 fields = res.text.split('="')[1].split("~")
                 tc_price = float(fields[3] or 0)
                 if tc_price > 0:
-                    # 检查价格偏差是否超过 1%
                     diff_pct = abs(tc_price - primary_price) / primary_price
                     if diff_pct <= 0.01:
                         return True, tc_price
@@ -724,16 +762,16 @@ class MorningStockPickerAgent:
             print(f"⚠️ 腾讯价格校验网络异常 (放行主价格): {e}")
         return True, primary_price
 
-    def fetch_sina_market_data(self, scan_target=5500) -> List[Dict]:
+    def fetch_sina_market_data(self) -> List[Dict]:
         """主入口：自动实现 东财 -> 新浪 降级逻辑"""
         print(f"📡 开启 A 股全量扫描 (首选：东方财富 API)...")
-        all_diff = self._fetch_from_eastmoney(scan_target)
+        all_diff = self._fetch_from_eastmoney()
 
         if not all_diff:
             print("⚠️ 东方财富数据通道异常/为空，自动无缝降级切换至 【新浪财经 API】...")
-            all_diff = self._fetch_from_sina(scan_target)
+            all_diff = self._fetch_from_sina()
 
-        print(f"✅ 全量行情采集完成！共计扫描到 {len(all_diff)} 只主板股票。")
+        print(f"✅ 全量行情采集完成！共计扫描到 {len(all_diff)} 只 A 股股票。")
         return all_diff
 
     # ==========================================
@@ -754,8 +792,6 @@ class MorningStockPickerAgent:
             turnover, vol_ratio = item.get("f8", "-"), item.get("f10", "-")
             pct_60d = item.get("f24", "-")
 
-            if not (code.startswith("60") or code.startswith("00")):
-                continue
             if price in ["-", 0] or pct == "-" or any(
                 k in name.upper() for k in ["ST", "退", "N", "C"]
             ):
@@ -858,6 +894,14 @@ class MorningStockPickerAgent:
         if not final_items:
             print("⚠️ 过滤去重后，今日无新推荐标的。")
             return [], [], ""
+
+        # 🛠️ 再次防错保护，保证包含止损止盈
+        for i in final_items:
+            p = float(str(i.get("price", "0")).replace("元", ""))
+            if "stop_loss" not in i:
+                i["stop_loss"] = round(p * 0.95, 2)
+            if "target_price" not in i:
+                i["target_price"] = round(p * 1.08, 2)
 
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
