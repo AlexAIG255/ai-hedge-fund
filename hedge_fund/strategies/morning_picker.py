@@ -461,44 +461,16 @@ class MorningStockPickerAgent:
             print(f"❌ 写入 Postmortem 文件失败: {e}")
 
     # ==========================================
-    # 📊 5. 飞书多维表格 API 同步 (修复了报错安全校验)
+    # 📊 5. 飞书多维表格 API 同步
     # ==========================================
     def sync_to_feishu(self, selected_items: List[Dict]):
+        """同步选中股票至飞书多维表格（支持全量分页、动态收益计算与分批安全写入）"""
         if not (
             FEISHU_APP_ID
             and FEISHU_APP_SECRET
             and FEISHU_APP_TOKEN
             and FEISHU_TABLE_ID
         ):
-            print("⚠️ 未配置完整飞书环境变量，跳过飞书同步。")
-            return
-
-        auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-        try:
-            res_auth = requests.post(
-                auth_url,
-                json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
-                timeout=10,
-            )
-            access_token = res_auth.json().get("tenant_access_token", "")
-            if not access_token:
-                print("❌ 获取飞书 Access Token 失败。")
-                return
-        except Exception as e:
-            print(f"❌ 飞书鉴权网络请求异常: {e}")
-            return
-
-        headers = {
-            "Content-Type": "application/json; charset=utf-8",
-            "Authorization": f"Bearer {access_token}",
-        }
-
-        existing_stocks = {}
-        existing_keys = set()
-
-     def sync_to_feishu(self, selected_items: List[Dict]):
-        """同步选中股票至飞书多维表格（支持全量分页、动态收益计算与分批安全写入）"""
-        if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
             print("⚠️ 未配置完整飞书环境变量，跳过飞书同步。")
             return
 
@@ -676,6 +648,7 @@ class MorningStockPickerAgent:
         except (ValueError, TypeError):
             return default
 
+    @staticmethod
     def _generate_stock_code_list() -> List[str]:
         """动态生成全量 A 股代码列表 (兼容 60/00/300/688)"""
         codes = []
@@ -762,7 +735,7 @@ class MorningStockPickerAgent:
 
         return all_diff
 
-    def _fetch_from_eastmoney_backup((self) -> List[Dict]:
+    def _fetch_from_eastmoney_backup(self) -> List[Dict]:
         """备用通道：东方财富跨域专线节点"""
         all_diff = []
         session = requests.Session()
