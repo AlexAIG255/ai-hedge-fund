@@ -1,7 +1,7 @@
 """
-Agent 1: 大盘早晚选股 Agent - 7大全策略选股模型集成 & 联动 Agent 3 动态风控过滤
-集成了全量 A 股抓取（5000+只）、7大核心量化选股（右侧启动/超跌反弹/出水芙蓉/买在无人问津处/多头向上的圆月线/超跌反包强势/底部放量反转）、
-三源行情容错（腾讯+东财+新浪）与多源交叉校验、按策略配额（最少每策略1只）推送、嵌入 Agent 3 全球宏观风控与动态 ATR 止盈止损。
+Agent 1: 大盘早晚选股 Agent - 8大全策略选股模型集成 & 联动 Agent 3 动态风控过滤
+集成了全量 A 股抓取（排除创业板/北交所/次新股）、8大核心量化选股（右侧启动/超跌反弹/出水芙蓉/买在无人问津处/多头向上的圆月线/超跌反包强势/底部放量反转/三倍量战法）、
+三源行情容错（腾讯+东财+新浪）与多源交叉校验、各策略配额（每策略精选2-3只）推送、嵌入 Agent 3 全球宏观风控与动态 ATR 止盈止损。
 """
 
 import json
@@ -229,7 +229,7 @@ class MorningStockPickerAgent:
         }
 
     # ==========================================
-    # 🌙 3. 独立 7 大策略计算逻辑（防追高优化）
+    # 🌙 3. 独立 8 大策略计算逻辑（包含三倍量战法）
     # ==========================================
     def evaluate_strategies_independently(
         self,
@@ -252,7 +252,7 @@ class MorningStockPickerAgent:
         pct_60d_val: float,
     ) -> List[Tuple[str, str]]:
         """
-        逐个判断 7 大策略，涨幅上限压低至 4.5%~5.0%，避免追高
+        逐个判断 8 大策略，涨幅上限压低至 4.5%~5.0%，避免追高
         """
         matched_strategies = []
         ma21_up = ma21 >= prev_ma21
@@ -286,6 +286,10 @@ class MorningStockPickerAgent:
         is_shrink_vol = turnover_val < 4.0 and vol_ratio_val < 1.1
         if ma21_up and (ma21 * 0.98 <= c <= ma12 * 1.03) and is_shrink_vol and (-2.0 <= pct_val <= 3.0):
             matched_strategies.append(("DESERTED_LOW_BUY", "🛡️ 买在无人问津处"))
+
+        # 策略 8: 🔥 三倍量战法 (量比 >= 3.0 且阳线放量上攻，控在 0.5% ~ 5.0%)
+        if vol_ratio_val >= 3.0 and c >= o and (0.5 <= pct_val <= 5.0):
+            matched_strategies.append(("TRIPLE_VOLUME", "🔥 三倍量战法"))
 
         return matched_strategies
 
@@ -460,9 +464,7 @@ class MorningStockPickerAgent:
     def _generate_stock_code_list() -> List[str]:
         codes = []
         codes.extend([f"sh60{i:04d}" for i in range(0, 4000)])
-        codes.extend([f"sh688{i:03d}" for i in range(0, 1000)])
         codes.extend([f"sz00{i:04d}" for i in range(0, 3100)])
-        codes.extend([f"sz300{i:03d}" for i in range(0, 1000)])
         return codes
 
     def _fetch_from_tencent_batch(self) -> List[Dict]:
@@ -544,7 +546,7 @@ class MorningStockPickerAgent:
                 "fltt": "2",
                 "invt": "2",
                 "fid": "f3",
-                "fs": "m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23",
+                "fs": "m:0+t:6,m:1+t:2",
                 "fields": "f2,f3,f8,f10,f12,f14,f15,f16,f17,f18,f24",
             }
             try:
@@ -686,7 +688,14 @@ class MorningStockPickerAgent:
             turnover, vol_ratio = item.get("f8", 0.0), item.get("f10", 1.0)
             pct_60d = item.get("f24", 0.0)
 
-            if price <= 0 or any(k in name.upper() for k in ["ST", "退", "N", "C"]):
+            # 🛑 过滤基础垃圾股：过滤开盘无效价、ST、退市股
+            if price <= 0 or any(k in name.upper() for k in ["ST", "退"]):
+                continue
+
+            # 🚫 核心排除条件：排除创业板(300/301)、北交所(8/4/920开头)、次新股(名称含N/C)
+            if code.startswith(("300", "301", "8", "4", "920", "83", "87", "43")):
+                continue
+            if any(k in name.upper() for k in ["N", "C"]):
                 continue
 
             try:
@@ -744,6 +753,7 @@ class MorningStockPickerAgent:
         selected_candidates = []
         used_codes = set()
 
+        # 🎯 包含新增的策略 8：三倍量战法
         all_strategy_keys = [
             "BOTTOM_REVERSAL",
             "TREND_FOLLOWING",
@@ -752,26 +762,21 @@ class MorningStockPickerAgent:
             "OVERSOLD_ENGULFING",
             "OVERSOLD_BOUNCE",
             "DESERTED_LOW_BUY",
+            "TRIPLE_VOLUME",
         ]
 
+        # 📌 各策略配额：每个策略抽取 2~3 个 TrendIQ 评分最高的优质标的
         for strat_key in all_strategy_keys:
             bucket = strategy_buckets.get(strat_key, [])
             bucket_sorted = sorted(bucket, key=lambda x: x.get("trend_iq", 0), reverse=True)
+            strat_count = 0
             for item in bucket_sorted:
                 if item["code"] not in used_codes:
                     selected_candidates.append(item)
                     used_codes.add(item["code"])
-                    break
-
-        remaining_pool = []
-        for bucket in strategy_buckets.values():
-            for item in bucket:
-                if item["code"] not in used_codes:
-                    remaining_pool.append(item)
-                    used_codes.add(item["code"])
-
-        remaining_pool_sorted = sorted(remaining_pool, key=lambda x: x.get("trend_iq", 0), reverse=True)
-        selected_candidates.extend(remaining_pool_sorted[: max(0, 10 - len(selected_candidates))])
+                    strat_count += 1
+                    if strat_count >= 3:  # 各策略推荐上限设定为 3 个
+                        break
 
         print(f"🔍 启动多源价格校验，共 {len(selected_candidates)} 只标的...")
         verified_candidates = []
@@ -805,7 +810,7 @@ class MorningStockPickerAgent:
                 f"📌 **匹配策略桶**: {i['strategy']}\n"
                 f"💰 **最新校验价**: `{i['price']}元` ({i['pct']})\n"
                 f"💵 **建议建仓价**: `{i['suggested_entry']}元` (建仓区间: `{i['entry_range']}`)\n"
-                f"脑 **TrendIQ 综合评分**: **{i['trend_iq']} 分** | 风控: {i['risk_display']}\n"
+                f"🧠 **TrendIQ 综合评分**: **{i['trend_iq']} 分** | 风控: {i['risk_display']}\n"
                 f"🛡️ **建议仓位**: `{i.get('suggested_pos', '10.0%')}` | 盈亏比: `{i.get('rr_ratio', '2.0')}`\n"
                 f"🛑 **动态风控**: 止损 `{i['stop_loss']}元` | 止盈目标 `{i['target_price']}元`\n"
                 f"-----------------------------------\n"
