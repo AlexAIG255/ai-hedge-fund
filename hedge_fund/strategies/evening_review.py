@@ -1,9 +1,10 @@
 """
 Agent 2: 晚间复盘 Agent - 5-45日跟踪复盘 & 飞书双向同步 & 企微强弱筛选推送
-彻底修复：
-1. 从飞书实时反向同步上午推荐的新股，解决晨晚股票不一致问题。
-2. 基于推荐日期(Date Offset)动态计算持仓天数，解决持仓天数恒为 1 天的问题。
-3. 正则提取腾讯行情，隔离已结案股票，修复企微胜率/成功率显示。
+
+优化更新日志：
+1. 彻底解决止损个股重复推送：历史结案标的次日起自动静默，不再入选企微推送与每日复盘，仅保留用于历史胜率统计。
+2. 飞书 1:1 严密核对与及时回填：支持全量分页拉取，精准回填当日最新收盘价、持仓收益率、持股天数与复盘时间戳。
+3. 补充【三倍量战法】：全面支持“三倍量战法”策略识别、专属风控比例（10%止盈 / 4%止损）及胜负归因逻辑。
 """
 
 import json
@@ -52,7 +53,7 @@ class EveningReviewAgent:
             print(f"❌ 保存持仓跟踪池失败: {e}")
 
     # ==========================================
-    # 🔍 1. 从飞书同步全量持仓（解决上午股票缺失问题）
+    # 🔍 1. 从飞书同步全量持仓（支持分页 & 排除历史结案）
     # ==========================================
     def sync_from_feishu_and_get_records(self) -> Tuple[str, Dict[str, str], List[Dict]]:
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
@@ -83,10 +84,25 @@ class EveningReviewAgent:
         feishu_active_stocks = []
         list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
 
+        has_more = True
+        page_token = ""
+
         try:
-            res_list = requests.get(list_url, headers=headers, params={"page_size": 100}, timeout=10)
-            if res_list.status_code == 200:
-                items = res_list.json().get("data", {}).get("items", [])
+            while has_more:
+                params = {"page_size": 100}
+                if page_token:
+                    params["page_token"] = page_token
+
+                res_list = requests.get(list_url, headers=headers, params=params, timeout=10)
+                if res_list.status_code != 200:
+                    break
+
+                res_json = res_list.json()
+                data_body = res_json.get("data", {})
+                items = data_body.get("items", [])
+                has_more = data_body.get("has_more", False)
+                page_token = data_body.get("page_token", "")
+
                 for r in items:
                     rec_id = r.get("record_id")
                     fields = r.get("fields", {})
@@ -102,14 +118,25 @@ class EveningReviewAgent:
                     if code and code.isdigit():
                         code = code.zfill(6)
 
-                    status = fields.get("状态", "持仓中")
+                    status = str(fields.get("状态", "持仓中")).strip()
                     name = fields.get("股票名称") or fields.get("名称") or f"标的_{code}"
                     entry_price = float(fields.get("买入价格") or fields.get("建仓价") or fields.get("最新校验价") or 0.0)
-                    target_price = float(fields.get("目标价") or fields.get("止盈价") or (entry_price * 1.08 if entry_price else 0))
-                    stop_loss = float(fields.get("止损价") or (entry_price * 0.95 if entry_price else 0))
+                    
                     strategy = fields.get("策略桶") or fields.get("匹配策略桶") or "综合选股"
 
-                    # 推荐日期解析（格式：毫秒时间戳 或 YYYY-MM-DD）
+                    # 3️⃣ 支持【三倍量战法】策略识别与参数初始化
+                    if "三倍量" in strategy:
+                        strategy = "三倍量战法"
+                        default_target = round(entry_price * 1.10, 2) if entry_price > 0 else 0
+                        default_stop = round(entry_price * 0.96, 2) if entry_price > 0 else 0
+                    else:
+                        default_target = round(entry_price * 1.08, 2) if entry_price > 0 else 0
+                        default_stop = round(entry_price * 0.95, 2) if entry_price > 0 else 0
+
+                    target_price = float(fields.get("目标价") or fields.get("止盈价") or default_target)
+                    stop_loss = float(fields.get("止损价") or default_stop)
+
+                    # 推荐日期解析
                     rec_date_val = fields.get("推荐日期") or fields.get("建仓日期") or fields.get("复盘日期")
                     recommend_date = time.strftime("%Y-%m-%d")
                     if rec_date_val:
@@ -119,8 +146,9 @@ class EveningReviewAgent:
                             recommend_date = rec_date_val[:10]
 
                     if code and rec_id:
+                        record_map[code] = rec_id
+                        # 1️⃣ 严格过滤：仅加载【持仓中】或【TRACKING】状态的股票，已止损/已止盈的不拉入活跃池
                         if status in ["持仓中", "TRACKING"]:
-                            record_map[code] = rec_id
                             feishu_active_stocks.append({
                                 "code": code,
                                 "name": name,
@@ -132,7 +160,7 @@ class EveningReviewAgent:
                                 "recommend_date": recommend_date,
                             })
 
-                print(f"📊 飞书表格拉取成功：发现 {len(feishu_active_stocks)} 只在跟踪中的活跃股票（已打通上午推荐）。")
+            print(f"📊 飞书表格拉取完成：当前活跃跟踪股票数量为 {len(feishu_active_stocks)} 只（已自动排除历史已结案标的）。")
         except Exception as e:
             print(f"⚠️ 获取飞书多维表格记录列表异常: {e}")
 
@@ -145,29 +173,34 @@ class EveningReviewAgent:
         access_token, record_map, feishu_stocks = self.sync_from_feishu_and_get_records()
         local_tracker = self.load_tracker()
 
-        # 1. 深度合并本地 JSON 与飞书数据（以飞书最新建仓记录为准，确保上午新股不漏掉）
+        # 1. 深度合并本地 JSON 与飞书数据
         tracker_map = {str(item["code"]).zfill(6): item for item in local_tracker}
 
         for fs_item in feishu_stocks:
             code = fs_item["code"]
             if code not in tracker_map:
-                # 补充上午推送但本地 JSON 缺失的新股票
                 tracker_map[code] = fs_item
             else:
-                # 保持/同步推荐日期与建仓信息
-                tracker_map[code]["status"] = "TRACKING"
-                if "recommend_date" not in tracker_map[code]:
-                    tracker_map[code]["recommend_date"] = fs_item["recommend_date"]
+                # 仅当本地记录不是已结案状态时，同步活跃状态
+                if tracker_map[code].get("status") not in ["WIN", "LOSS"]:
+                    tracker_map[code]["status"] = "TRACKING"
+                    tracker_map[code]["entry_price"] = fs_item["entry_price"]
+                    tracker_map[code]["target_price"] = fs_item["target_price"]
+                    tracker_map[code]["stop_loss"] = fs_item["stop_loss"]
+                    tracker_map[code]["strategy"] = fs_item["strategy"]
+                    if "recommend_date" not in tracker_map[code]:
+                        tracker_map[code]["recommend_date"] = fs_item["recommend_date"]
 
         tracker_data = list(tracker_map.values())
 
-        # 2. 过滤活跃持仓
+        # 2. 筛选真正需要复盘的活跃持仓（排除往期已经 WIN/LOSS 的股票）
         active_tracking = [item for item in tracker_data if item.get("status") == "TRACKING"]
         if not active_tracking:
-            print("💡 当前没有在跟踪中的活跃股票。")
+            print("💡 当前没有需要更新复盘的活跃股票。")
+            self.save_tracker(tracker_data)
             return
 
-        # 3. 批量获取腾讯最新行情（使用正则提取）
+        # 3. 批量获取腾讯最新行情
         tc_codes = []
         for i in active_tracking:
             code = str(i["code"]).zfill(6)
@@ -196,19 +229,16 @@ class EveningReviewAgent:
 
         review_summary = []
         today_date = datetime.now().date()
+        today_str = time.strftime("%Y-%m-%d")
         today_timestamp = int(time.time() * 1000)
 
-        # 4. 遍历活跃持仓，利用绝对日期差精准计算【持仓天数】
-        for item in tracker_data:
-            if item.get("status") != "TRACKING":
-                continue
-
+        # 4. 遍历活跃持仓计算持仓天数与盈亏判定
+        for item in active_tracking:
             code = str(item["code"]).zfill(6)
             entry_price = float(item["entry_price"])
             curr_price = price_map.get(code, entry_price)
 
-            # 🛠️ 关键修复：基于【推荐日期】动态计算持仓天数（自然日/建仓日计算）
-            rec_date_str = item.get("recommend_date", time.strftime("%Y-%m-%d"))
+            rec_date_str = item.get("recommend_date", today_str)
             try:
                 rec_dt = datetime.strptime(rec_date_str[:10], "%Y-%m-%d").date()
                 days = (today_date - rec_dt).days + 1
@@ -217,7 +247,7 @@ class EveningReviewAgent:
             except Exception:
                 days = item.get("days_tracked", 1)
 
-            item["days_tracked"] = days  # 实时更新持仓天数
+            item["days_tracked"] = days
 
             ret_pct = ((curr_price - entry_price) / entry_price) * 100 if entry_price > 0 else 0.0
             ret_str = f"{ret_pct:+.2f}%"
@@ -226,26 +256,42 @@ class EveningReviewAgent:
             status = "持仓中"
             strength = "🔥 强势" if ret_pct >= 0 else "⚠️ 弱势"
 
-            target_price = float(item.get("target_price") or round(entry_price * 1.08, 2))
-            stop_loss = float(item.get("stop_loss") or round(entry_price * 0.95, 2))
+            # 区分不同战法的目标价止损价
+            if strategy == "三倍量战法":
+                target_price = float(item.get("target_price") or round(entry_price * 1.10, 2))
+                stop_loss = float(item.get("stop_loss") or round(entry_price * 0.96, 2))
+            else:
+                target_price = float(item.get("target_price") or round(entry_price * 1.08, 2))
+                stop_loss = float(item.get("stop_loss") or round(entry_price * 0.95, 2))
+
+            just_closed_today = False  # 是否为今日刚触发结案
 
             # 盈亏规则判定
             if curr_price >= target_price and entry_price > 0:
                 item["status"] = "WIN"
+                item["close_date"] = today_str
                 item["reason"] = f"达标止盈 [{strategy}]: 突破目标价 {target_price}元，获利离场"
                 status = "已止盈"
                 strength = "🚀 强达标"
+                just_closed_today = True
             elif curr_price <= stop_loss and entry_price > 0:
                 item["status"] = "LOSS"
-                item["reason"] = f"触及止损 [{strategy}]: 跌破止损价 {stop_loss}元，防守离场"
+                item["close_date"] = today_str
+                if strategy == "三倍量战法":
+                    item["reason"] = f"触及止损 [三倍量战法]: 跌破放量风控价 {stop_loss}元，防守离场"
+                else:
+                    item["reason"] = f"触及止损 [{strategy}]: 跌破止损价 {stop_loss}元，防守离场"
                 status = "已止损"
                 strength = "❌ 弱触损"
+                just_closed_today = True
             elif days >= 45:
                 item["status"] = "WIN" if ret_pct > 0 else "LOSS"
+                item["close_date"] = today_str
                 item["reason"] = "到期清算: 达到 45 日持仓上限"
                 status = "已平仓"
+                just_closed_today = True
 
-            reason_desc = item.get("reason", "观察中")
+            reason_desc = item.get("reason", "持仓观察中")
 
             review_summary.append({
                 "code": code,
@@ -259,9 +305,11 @@ class EveningReviewAgent:
                 "status": status,
                 "strength": strength,
                 "reason": reason_desc,
+                "just_closed_today": just_closed_today,
+                "is_active": item["status"] == "TRACKING"
             })
 
-            # 5. 回填/更新飞书多维表格
+            # 2️⃣ 飞书 1:1 回填更新每日收盘价与状态
             if access_token and code in record_map:
                 record_id = record_map[code]
                 update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/{record_id}"
@@ -281,9 +329,13 @@ class EveningReviewAgent:
                     }
                 }
                 try:
-                    requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
+                    res_patch = requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
+                    if res_patch.status_code == 200:
+                        print(f"✅ 飞书更新成功 [{code} {item['name']}]: 收盘价 {curr_price}元, 状态 [{status}]")
+                    else:
+                        print(f"❌ 飞书更新失败 [{code}]: {res_patch.text}")
                 except Exception as e:
-                    print(f"❌ 更新飞书 Record ({code}) 异常: {e}")
+                    print(f"❌ 更新飞书 Record ({code}) 网络异常: {e}")
 
         # 保存更新后的持久化持仓
         self.save_tracker(tracker_data)
@@ -314,7 +366,7 @@ class EveningReviewAgent:
             print(f"❌ 写入 Skill 日志失败: {e}")
 
     # ==========================================
-    # 📱 4. 企微分批推送
+    # 📱 4. 企微分批推送（精准剔除过往已止损股票）
     # ==========================================
     def push_wechat_summary(self, summary_list: List[Dict], all_tracker_data: List[Dict]):
         if not WECHAT_WEBHOOK or not summary_list:
@@ -324,11 +376,14 @@ class EveningReviewAgent:
         chunk_size = 5
         total_chunks = (len(summary_list) + chunk_size - 1) // chunk_size
 
-        strong_stocks = [s for s in summary_list if s["ret_pct"] >= 0]
-        weak_stocks = [s for s in summary_list if s["ret_pct"] < 0]
-        avg_ret = sum(s["ret_pct"] for s in summary_list) / len(summary_list)
+        # 1️⃣ 严格过滤“建议持有/防守”清单：只包含【当前依然在持仓跟踪中】的股票，已止损的不入选
+        still_active = [s for s in summary_list if s["is_active"]]
+        strong_stocks = [s for s in still_active if s["ret_pct"] >= 0]
+        weak_stocks = [s for s in still_active if s["ret_pct"] < 0]
+        
+        avg_ret = (sum(s["ret_pct"] for s in still_active) / len(still_active)) if still_active else 0.0
 
-        # 计算历史胜率
+        # 计算历史胜率（基于所有历史已结案记录）
         completed = [i for i in all_tracker_data if i.get("status") in ["WIN", "LOSS"]]
         total_completed = len(completed)
         win_count = sum(1 for i in completed if i.get("status") == "WIN")
@@ -343,8 +398,10 @@ class EveningReviewAgent:
 
             for s in chunk:
                 icon = "🔴" if s["ret_pct"] > 0 else ("🟢" if s["ret_pct"] < 0 else "⚪")
+                notice = " 🚨 **[今日触发离场，次日起停止推送]**" if s["just_closed_today"] else ""
+                
                 line = (
-                    f"{icon} **{s['name']}** (`{s['code']}`)\n"
+                    f"{icon} **{s['name']}** (`{s['code']}`){notice}\n"
                     f"• 策略桶: **{s['strategy']}** | 评级: **{s['strength']}**\n"
                     f"• 最新价: `{s['curr_price']:.2f}元` | 收益: `{s['ret_str']}`\n"
                     f"• 状态: **{s['status']}** | 持仓: `{s['days']}天`\n"
@@ -357,9 +414,9 @@ class EveningReviewAgent:
             if page == total_chunks:
                 lines.append("📊 **【持仓强弱筛选与成功率统计】**\n")
                 lines.append(f"• 🎯 **历史策略成功率(胜率)**: `{win_rate:.1f}%` (已结案 `{total_completed}` 只)")
-                lines.append(f"• 📈 **当前持仓平均收益率**: `{avg_ret:+.2f}%`")
+                lines.append(f"• 📈 **当前活跃持仓平均收益率**: `{avg_ret:+.2f}%`")
                 lines.append(f"• 💪 **建议持有(强势标的)**: {', '.join([s['name'] for s in strong_stocks]) or '无'}")
-                lines.append(f"• ⚠️ **建议防守(弱势标的)**: {', '.join([s['name'] for s in weak_stocks]) or '无'}\n")
+                lines.append(f"• ⚠️ **建议防守(弱势跟踪中)**: {', '.join([s['name'] for s in weak_stocks]) or '无'}\n")
 
                 lines.append("🧐 **【盈亏归因分析】**")
                 if avg_ret >= 0:
