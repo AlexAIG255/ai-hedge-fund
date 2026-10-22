@@ -150,7 +150,7 @@ class MorningStockPickerAgent:
         self.save_history(history)
 
     # ==========================================
-    # 📐 2. TrendIQ 智能评分 (低风险偏好调优)
+    # 📐 2. TrendIQ 智能评分 (高胜率调优版)
     # ==========================================
     def calculate_trend_iq_and_risk(
         self,
@@ -162,41 +162,38 @@ class MorningStockPickerAgent:
     ) -> Dict:
         risk_stars = 1
 
-        # 🛡️ 稳健风控规则：涨幅过高（超过4.5%）提高风险评级，防止追高
-        if pct_val > 4.5:
+        # 🛡️ 更严苛的防追高与防破位风控规则
+        if pct_val > 4.0:
             risk_stars += 1
-        if turnover_val > 15.0 or abs(pct_60d_val) > 40.0:
+        if turnover_val > 12.0 or abs(pct_60d_val) > 35.0:
             risk_stars += 1
-        if turnover_val > 25.0 or abs(pct_60d_val) > 60.0:
+        if turnover_val > 20.0 or abs(pct_60d_val) > 50.0:
             risk_stars += 1
 
-        if pct_val < -5.0 or pct_val > 7.0:
+        if pct_val < -3.0 or pct_val > 6.0:
             risk_stars += 1
-        if price_val < 2.0:
+        if price_val < 3.0:
             risk_stars += 1
 
         risk_stars = min(5, max(1, risk_stars))
         base_score = 75
 
-        # 🎯 限制追高逻辑：涨幅在 0.5%~3.5% 给予最佳评分；>4.5% 开始扣分
-        if 0.5 <= pct_val <= 3.5:
-            momentum_score = round(pct_val * 2.0, 1)  # 鼓励低位起步
-        elif 3.5 < pct_val <= 5.0:
-            momentum_score = round(7.0 - (pct_val - 3.5) * 2.0, 1)  # 适当衰减
-        elif pct_val > 5.0:
-            momentum_score = round(3.0 - (pct_val - 5.0) * 3.0, 1)  # 追高倒扣分
+        # 🎯 优化动能得分：鼓励优质低位稳健蓄势
+        if 0.5 <= pct_val <= 3.0:
+            momentum_score = round(pct_val * 2.2, 1)
+        elif 3.0 < pct_val <= 4.5:
+            momentum_score = round(6.5 - (pct_val - 3.0) * 2.5, 1)
         else:
-            momentum_score = round(pct_val * 0.8, 1)
+            momentum_score = round(2.0 - (pct_val - 4.5) * 4.0, 1)
 
         volume_score = round(min(10, turnover_val * 0.3) + (vol_ratio_val * 1.5), 1)
-        risk_deduct = round(risk_stars * 2.5, 1)
+        risk_deduct = round(risk_stars * 3.0, 1)
 
         trend_iq = int(base_score + momentum_score + volume_score - risk_deduct)
         trend_iq = min(99, max(40, trend_iq))
 
-        # 💵 建议建仓价计算：如果涨幅稍高，建议挂单买在低吸位（回撤1%~1.5%）
-        if pct_val > 2.5:
-            suggested_entry = round(price_val * (1.0 - (pct_val - 1.5) * 0.004), 2)
+        if pct_val > 2.0:
+            suggested_entry = round(price_val * (1.0 - (pct_val - 1.0) * 0.005), 2)
         else:
             suggested_entry = price_val
 
@@ -210,7 +207,7 @@ class MorningStockPickerAgent:
             f"🔍 **【多维度量化行情诊断】**\n"
             f"1️⃣ **价格与动能趋势**: 当日动态涨跌幅 `{pct_val:+.2f}%`，当前价格 `{price_val:.2f}元`。\n"
             f"2️⃣ **资金与成交活跃度**: 换手率 `{turnover_val:.2f}%`，配合量比指标 `{vol_ratio_val:.2f}`。\n"
-            f"3️⃣ **风控指导与策略要点**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。"
+            f"3️⃣ **高胜率风控评级**: 评估风险评级为 `{risk_stars} 星` ({'⭐' * risk_stars})。"
         )
 
         default_stop_loss = round(suggested_entry * 0.95, 2)
@@ -225,11 +222,12 @@ class MorningStockPickerAgent:
             "entry_range": entry_range,
             "stop_loss": default_stop_loss,
             "target_price": default_target_price,
-            "pass_risk": (risk_stars <= 3) and (trend_iq >= 65),  # 提升风险门槛，只保留低风险标的
+            # 🚀 大幅提高胜率门槛：要求 TrendIQ >= 75 且风险星级必须 <= 2 星
+            "pass_risk": (risk_stars <= 2) and (trend_iq >= 75),
         }
 
     # ==========================================
-    # 🌙 3. 独立 8 大策略计算逻辑（包含三倍量战法）
+    # 🌙 3. 独立 8 大策略计算逻辑（高胜率过滤版）
     # ==========================================
     def evaluate_strategies_independently(
         self,
@@ -252,43 +250,43 @@ class MorningStockPickerAgent:
         pct_60d_val: float,
     ) -> List[Tuple[str, str]]:
         """
-        逐个判断 8 大策略，涨幅上限压低至 4.5%~5.0%，避免追高
+        逐个判断 8 大策略，收紧涨幅与量能配合，确保高胜率
         """
         matched_strategies = []
         ma21_up = ma21 >= prev_ma21
 
-        # 策略 1: 🧪 底部放量反转 (控在 0.5% ~ 4.5%)
-        if (pct_60d_val <= -10.0 or avg_bias <= -5.0) and c >= o and vol_ratio_val >= 1.1 and (0.5 <= pct_val <= 4.5):
+        # 策略 1: 🧪 底部放量反转 (要求量比更强，涨幅控制在 0.5% ~ 4.0%)
+        if (pct_60d_val <= -8.0 or avg_bias <= -4.0) and c >= o and vol_ratio_val >= 1.3 and (0.5 <= pct_val <= 4.0):
             matched_strategies.append(("BOTTOM_REVERSAL", "🧪 底部放量反转"))
 
-        # 策略 2: 📈 多头向上的圆月线 (控在 0.5% ~ 4.5%)
-        if (c >= ma5 >= ma21 or ma3 > ma12 > ma21) and ma21_up and (0.5 <= pct_val <= 4.5):
+        # 策略 2: 📈 多头向上的圆月线 (均线强多头排列)
+        if (c >= ma5 >= ma21 or ma3 > ma12 > ma21) and ma21_up and (0.5 <= pct_val <= 4.0):
             matched_strategies.append(("TREND_FOLLOWING", "📈 多头向上的圆月线"))
 
-        # 策略 3: 🚀 右侧启动 (控在 0.5% ~ 5.0%)
-        if prev_c <= prev_ma21 * 1.01 and c > ma21 and (vol_ratio_val >= 1.1 or turnover_val >= 2.0) and (0.5 <= pct_val <= 5.0):
+        # 策略 3: 🚀 右侧启动 (突破关键均线)
+        if prev_c <= prev_ma21 * 1.01 and c > ma21 and vol_ratio_val >= 1.2 and (0.5 <= pct_val <= 4.5):
             matched_strategies.append(("RIGHT_SIDE_LAUNCH", "🚀 右侧启动"))
 
-        # 策略 4: 🌸 出水芙蓉 (控在 1.0% ~ 5.0%)
+        # 策略 4: 🌸 出水芙蓉 (一阳穿多线，量比放大)
         cross_count = sum([1 for ma in [ma5, ma12, ma21, ma55] if l <= ma and c >= ma])
-        if cross_count >= 2 and vol_ratio_val >= 1.2 and (1.0 <= pct_val <= 5.0):
+        if cross_count >= 2 and vol_ratio_val >= 1.4 and (1.0 <= pct_val <= 4.5):
             matched_strategies.append(("LOTUS_BREAKOUT", "🌸 出水芙蓉"))
 
-        # 策略 5: 🔄 超跌反包强势 (控在 0.5% ~ 4.5%)
-        if prev_c < prev_o and c > o and c >= prev_o * 0.99 and (0.5 <= pct_val <= 4.5):
+        # 策略 5: 🔄 超跌反包强势 (实体吞没，动能强劲)
+        if prev_c < prev_o and c > o and c >= prev_o * 0.99 and vol_ratio_val >= 1.2 and (0.5 <= pct_val <= 4.0):
             matched_strategies.append(("OVERSOLD_ENGULFING", "🔄 超跌反包强势"))
 
-        # 策略 6: ⚡ 超跌反弹 (控在 -2.0% ~ 4.0%)
-        if (avg_bias <= -8.0 or pct_60d_val <= -15.0) and c > o and (-2.0 <= pct_val <= 4.0):
+        # 策略 6: ⚡ 超跌反弹 (严控超跌幅度，要求止跌回升)
+        if (avg_bias <= -6.0 or pct_60d_val <= -12.0) and c > o and (0.0 <= pct_val <= 3.5):
             matched_strategies.append(("OVERSOLD_BOUNCE", "⚡ 超跌反弹"))
 
-        # 策略 7: 🛡️ 买在无人问津处 (控在 -2.0% ~ 3.0%)
-        is_shrink_vol = turnover_val < 4.0 and vol_ratio_val < 1.1
-        if ma21_up and (ma21 * 0.98 <= c <= ma12 * 1.03) and is_shrink_vol and (-2.0 <= pct_val <= 3.0):
+        # 策略 7: 🛡️ 买在无人问津处 (均线上行期缩量回踩)
+        is_shrink_vol = turnover_val < 3.5 and vol_ratio_val < 1.05
+        if ma21_up and (ma21 * 0.98 <= c <= ma12 * 1.02) and is_shrink_vol and (-1.0 <= pct_val <= 2.5):
             matched_strategies.append(("DESERTED_LOW_BUY", "🛡️ 买在无人问津处"))
 
-        # 策略 8: 🔥 三倍量战法 (量比 >= 3.0 且阳线放量上攻，控在 0.5% ~ 5.0%)
-        if vol_ratio_val >= 3.0 and c >= o and (0.5 <= pct_val <= 5.0):
+        # 策略 8: 🔥 三倍量战法 (量比 >= 3.0，主动买盘强劲，涨幅适中防追高)
+        if vol_ratio_val >= 3.0 and c >= o and (1.0 <= pct_val <= 4.5):
             matched_strategies.append(("TRIPLE_VOLUME", "🔥 三倍量战法"))
 
         return matched_strategies
@@ -388,7 +386,7 @@ class MorningStockPickerAgent:
         self.save_tracker(tracker_data)
 
     # ==========================================
-    # 📊 5. 飞书同步
+    # 📊 5. 飞书同步（已增强错误日志输出）
     # ==========================================
     def sync_to_feishu(self, selected_items: List[Dict]):
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
@@ -402,10 +400,13 @@ class MorningStockPickerAgent:
                 json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
                 timeout=10,
             )
-            access_token = res_auth.json().get("tenant_access_token", "")
+            auth_data = res_auth.json()
+            access_token = auth_data.get("tenant_access_token", "")
             if not access_token:
+                print(f"❌ 飞书鉴权失败，返回值: {res_auth.text}")
                 return
-        except Exception:
+        except Exception as e:
+            print(f"❌ 飞书鉴权网络请求异常: {e}")
             return
 
         headers = {
@@ -443,8 +444,12 @@ class MorningStockPickerAgent:
         if records:
             batch_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"
             try:
-                requests.post(batch_url, headers=headers, json={"records": records}, timeout=10)
-                print("🎉 成功同步选股记录至飞书多维表格！")
+                res = requests.post(batch_url, headers=headers, json={"records": records}, timeout=10)
+                res_json = res.json()
+                if res.status_code == 200 and res_json.get("code") == 0:
+                    print("🎉 成功同步选股记录至飞书多维表格！")
+                else:
+                    print(f"❌ 飞书写入失败，错误详情: {res.text}")
             except Exception as e:
                 print(f"❌ 飞书同步请求异常: {e}")
 
@@ -753,7 +758,7 @@ class MorningStockPickerAgent:
         selected_candidates = []
         used_codes = set()
 
-        # 🎯 包含新增的策略 8：三倍量战法
+        # 🎯 包含 8 大策略
         all_strategy_keys = [
             "BOTTOM_REVERSAL",
             "TREND_FOLLOWING",
@@ -765,7 +770,7 @@ class MorningStockPickerAgent:
             "TRIPLE_VOLUME",
         ]
 
-        # 📌 各策略配额：每个策略抽取 2~3 个 TrendIQ 评分最高的优质标的
+        # 📌 各策略配额：每个策略抽取 2~3 个 TrendIQ 评分最高且过关的优质标的
         for strat_key in all_strategy_keys:
             bucket = strategy_buckets.get(strat_key, [])
             bucket_sorted = sorted(bucket, key=lambda x: x.get("trend_iq", 0), reverse=True)
@@ -775,7 +780,7 @@ class MorningStockPickerAgent:
                     selected_candidates.append(item)
                     used_codes.add(item["code"])
                     strat_count += 1
-                    if strat_count >= 3:  # 各策略推荐上限设定为 3 个
+                    if strat_count >= 3:
                         break
 
         print(f"🔍 启动多源价格校验，共 {len(selected_candidates)} 只标的...")
@@ -853,7 +858,7 @@ class MorningStockPickerAgent:
 if __name__ == "__main__":
     agent = MorningStockPickerAgent()
     print("==================================================")
-    print("🚀 Agent 1 [早盘选股 Agent] 启动，开始全盘检索与稳健策略低吸抽取...")
+    print("🚀 Agent 1 [早盘选股 Agent] 启动，开始全盘检索与稳健策略高胜率低吸抽取...")
     print("==================================================")
     selected_items, message_chunks, report_md = agent.run_strategy_pipeline()
     if message_chunks:
