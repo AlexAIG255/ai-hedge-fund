@@ -2,8 +2,8 @@
 Agent 2: 晚间复盘 Agent - 5-45日跟踪复盘 & 飞书双向同步 & 企微强弱筛选推送
 
 优化更新日志：
-1. 彻底解决止损个股重复推送：历史结案标的次日起自动静默，不再入选企微推送与每日复盘，仅保留用于历史胜率统计。
-2. 飞书 1:1 严密核对与及时回填：支持全量分页拉取，精准回填当日最新收盘价、持仓收益率、持股天数与复盘时间戳。
+1. 修复飞书分页拉取由于历史数据过多导致 10 月最新记录无法同步的问题。
+2. 优化 record_map 映射逻辑，防止旧行 ID 覆盖新行 ID，确保复盘数据精准写入今日表格。
 3. 补充【三倍量战法】：全面支持“三倍量战法”策略识别、专属风控比例（10%止盈 / 4%止损）及胜负归因逻辑。
 """
 
@@ -53,7 +53,7 @@ class EveningReviewAgent:
             print(f"❌ 保存持仓跟踪池失败: {e}")
 
     # ==========================================
-    # 🔍 1. 从飞书同步全量持仓（支持分页 & 排除历史结案）
+    # 🔍 1. 从飞书同步全量持仓（修复分页与记录覆盖问题）
     # ==========================================
     def sync_from_feishu_and_get_records(self) -> Tuple[str, Dict[str, str], List[Dict]]:
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
@@ -89,7 +89,7 @@ class EveningReviewAgent:
 
         try:
             while has_more:
-                params = {"page_size": 100}
+                params = {"page_size": 500}  # 扩大单页容量，防止最新记录被漏掉
                 if page_token:
                     params["page_token"] = page_token
 
@@ -146,8 +146,10 @@ class EveningReviewAgent:
                             recommend_date = rec_date_val[:10]
 
                     if code and rec_id:
-                        record_map[code] = rec_id
-                        # 1️⃣ 严格过滤：仅加载【持仓中】或【TRACKING】状态的股票，已止损/已止盈的不拉入活跃池
+                        # 🛠️ 修复映射覆盖：如果状态是“持仓中”，强制优先绑定该 record_id，确保最新行被更新
+                        if code not in record_map or status in ["持仓中", "TRACKING"]:
+                            record_map[code] = rec_id
+
                         if status in ["持仓中", "TRACKING"]:
                             feishu_active_stocks.append({
                                 "code": code,
@@ -160,7 +162,7 @@ class EveningReviewAgent:
                                 "recommend_date": recommend_date,
                             })
 
-            print(f"📊 飞书表格拉取完成：当前活跃跟踪股票数量为 {len(feishu_active_stocks)} 只（已自动排除历史已结案标的）。")
+            print(f"📊 飞书表格拉取完成：当前活跃跟踪股票数量为 {len(feishu_active_stocks)} 只。")
         except Exception as e:
             print(f"⚠️ 获取飞书多维表格记录列表异常: {e}")
 
@@ -181,7 +183,6 @@ class EveningReviewAgent:
             if code not in tracker_map:
                 tracker_map[code] = fs_item
             else:
-                # 仅当本地记录不是已结案状态时，同步活跃状态
                 if tracker_map[code].get("status") not in ["WIN", "LOSS"]:
                     tracker_map[code]["status"] = "TRACKING"
                     tracker_map[code]["entry_price"] = fs_item["entry_price"]
@@ -193,8 +194,7 @@ class EveningReviewAgent:
 
         tracker_data = list(tracker_map.values())
 
-        # 2. 筛选真正需要复盘的活跃持仓（排除往期已经 WIN/LOSS 的股票）
-        active_tracking = [item for item in tracker_data if item.get("status") == "TRACKING"]
+        active_tracking = [item for item in tracker_data if item.get("status"] == "TRACKING"]
         if not active_tracking:
             print("💡 当前没有需要更新复盘的活跃股票。")
             self.save_tracker(tracker_data)
@@ -256,7 +256,6 @@ class EveningReviewAgent:
             status = "持仓中"
             strength = "🔥 强势" if ret_pct >= 0 else "⚠️ 弱势"
 
-            # 区分不同战法的目标价止损价
             if strategy == "三倍量战法":
                 target_price = float(item.get("target_price") or round(entry_price * 1.10, 2))
                 stop_loss = float(item.get("stop_loss") or round(entry_price * 0.96, 2))
@@ -264,9 +263,8 @@ class EveningReviewAgent:
                 target_price = float(item.get("target_price") or round(entry_price * 1.08, 2))
                 stop_loss = float(item.get("stop_loss") or round(entry_price * 0.95, 2))
 
-            just_closed_today = False  # 是否为今日刚触发结案
+            just_closed_today = False
 
-            # 盈亏规则判定
             if curr_price >= target_price and entry_price > 0:
                 item["status"] = "WIN"
                 item["close_date"] = today_str
@@ -309,7 +307,7 @@ class EveningReviewAgent:
                 "is_active": item["status"] == "TRACKING"
             })
 
-            # 2️⃣ 飞书 1:1 回填更新每日收盘价与状态
+            # 2️⃣ 精准对应写入飞书最新行
             if access_token and code in record_map:
                 record_id = record_map[code]
                 update_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/{record_id}"
@@ -337,16 +335,10 @@ class EveningReviewAgent:
                 except Exception as e:
                     print(f"❌ 更新飞书 Record ({code}) 网络异常: {e}")
 
-        # 保存更新后的持久化持仓
         self.save_tracker(tracker_data)
-
-        # 6. 执行 Skill 复盘日志与企微分批推送
         self.update_skills_postmortem(tracker_data)
         self.push_wechat_summary(review_summary, tracker_data)
 
-    # ==========================================
-    # 🤖 3. Skill 自动迭代日志
-    # ==========================================
     def update_skills_postmortem(self, tracker_data: List[Dict]):
         completed = [i for i in tracker_data if i.get("status") in ["WIN", "LOSS"]]
         total = len(completed)
@@ -365,9 +357,6 @@ class EveningReviewAgent:
         except Exception as e:
             print(f"❌ 写入 Skill 日志失败: {e}")
 
-    # ==========================================
-    # 📱 4. 企微分批推送（精准剔除过往已止损股票）
-    # ==========================================
     def push_wechat_summary(self, summary_list: List[Dict], all_tracker_data: List[Dict]):
         if not WECHAT_WEBHOOK or not summary_list:
             return
@@ -376,14 +365,12 @@ class EveningReviewAgent:
         chunk_size = 5
         total_chunks = (len(summary_list) + chunk_size - 1) // chunk_size
 
-        # 1️⃣ 严格过滤“建议持有/防守”清单：只包含【当前依然在持仓跟踪中】的股票，已止损的不入选
         still_active = [s for s in summary_list if s["is_active"]]
         strong_stocks = [s for s in still_active if s["ret_pct"] >= 0]
         weak_stocks = [s for s in still_active if s["ret_pct"] < 0]
         
         avg_ret = (sum(s["ret_pct"] for s in still_active) / len(still_active)) if still_active else 0.0
 
-        # 计算历史胜率（基于所有历史已结案记录）
         completed = [i for i in all_tracker_data if i.get("status") in ["WIN", "LOSS"]]
         total_completed = len(completed)
         win_count = sum(1 for i in completed if i.get("status") == "WIN")
