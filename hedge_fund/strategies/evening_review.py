@@ -20,10 +20,14 @@ import argparse
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime
 from typing import Dict, List, Tuple
 import requests
+
+# 📁 确保 strategy_config.py（与 evening_review.py 同目录）无论在哪运行都能被找到
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 # 🔧 引入集中配置
 try:
