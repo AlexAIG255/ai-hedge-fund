@@ -16,7 +16,7 @@ SCHEDULER=/path/to/ai-hedge-fund/hedge_fund/strategies/scheduler
 # 🌅 早盘选股 09:50
 50 9 * * 1-5  $SCHEDULER/run_job.sh morning
 
-# 🔔 盘中监控（止损/止盈抛售提醒）09:35 / 10:30 / 13:30 / 14:30
+# 📡 盘中异动监控（仅异动提醒，不做止盈止损平仓）09:35 / 10:30 / 13:30 / 14:30
 35 9 * * 1-5  $SCHEDULER/run_job.sh intraday
 30 10 * * 1-5 $SCHEDULER/run_job.sh intraday
 30 13 * * 1-5 $SCHEDULER/run_job.sh intraday
@@ -24,3 +24,8 @@ SCHEDULER=/path/to/ai-hedge-fund/hedge_fund/strategies/scheduler
 
 # 🌙 晚间复盘 16:00
 0 16 * * 1-5  $SCHEDULER/run_job.sh evening
+
+# 📊 持仓每日详细总结（20:30，用已录入持仓做买卖/做T/盈亏归因总结）
+30 20 * * 1-5 $SCHEDULER/run_job.sh holdings
+
+# 注：以上所有任务在周末/法定节假日会被 run_job.sh 自动跳过（trading_calendar 守卫）。

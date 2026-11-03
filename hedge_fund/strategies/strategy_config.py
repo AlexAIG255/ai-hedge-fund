@@ -125,3 +125,20 @@ def to_market_code(code: str) -> str:
     if code.startswith(("8", "4", "9", "920", "83", "87", "43")):
         return f"bj{code}"
     return f"sh{code}"
+
+
+# ───────────────────────── 6. 盘中异动监控阈值 ─────────────────────────
+# 盘中监控（intraday_monitor.py）只用『异动提醒』，不再做止盈止损平仓。
+# 以下为异动判定阈值，统一在此调参。
+ANOMALY_THRESHOLDS = {
+    "strong_pct": 5.0,       # 涨幅 ≥ 该值(%) → 强势异动（放量上攻）
+    "weak_pct": -5.0,        # 跌幅 ≤ 该值(%) → 弱势异动（风险提醒）
+    "vol_ratio": 3.0,        # 量比 ≥ 该值    → 放量异动
+    "turnover": 8.0,         # 换手率 ≥ 该值(%) → 放量异动
+    "amplitude": 6.0,        # 振幅 ≥ 该值(%)  → 振幅异动（日内波动剧烈）
+}
+
+
+def get_anomaly_thresholds() -> dict:
+    """返回盘中异动阈值的副本，供监控模块调用。"""
+    return dict(ANOMALY_THRESHOLDS)

@@ -1,0 +1,529 @@
+"""
+持仓分析 Agent（截图识别 + 多维度分析 + 每日总结 + 自动进化 Skill）
+=====================================================================
+需求（用户）：
+  1. 输入持仓截图 → 识别 股票代码 / 持仓数量 / 成本价 / 最新价
+  2. 搜寻相关新闻、资金面等多维度资料
+  3. 每日详细总结：提示 买入 / 卖出 / 做T 的价格机会，含盈亏原因归因
+  4. GitHub 上的 Skill 能【自动进化】，降低误判机率
+
+设计：
+  - OCR 用多模态大模型（视觉接口，OpenAI 兼容），无需本地 OCR 引擎。
+  - 多维资料复用 stock_analyzer.enrich_stock（财报/股息/资金面/舆情）。
+  - 个股分析优先用 LLM 生成结构化建议（买卖/T 价位 + 盈亏归因），失败降级模板。
+  - 经验记忆 skills_memory.json：沉淀历史教训/案例，分析时检索相关经验注入提示词，
+    并由晚间复盘结果自动进化（SKILL_AUTO_EVOLVE），逐步降低误判。
+
+入口：
+  python holding_analyzer.py --image 持仓截图.jpg     # 识别+分析+推送
+  python holding_analyzer.py --daily                 # 用已存持仓做每日总结
+  python holding_analyzer.py --holdings-file x.json  # 直接给持仓JSON（免OCR，便于测试）
+  python holding_analyzer.py --feedback "经验文字"     # 手动沉淀一条经验
+"""
+
+import argparse
+import base64
+import json
+import os
+import sys
+import time
+from datetime import datetime
+from typing import Dict, List, Optional
+
+import requests
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# ── 依赖（均带优雅降级）────────────────────────────────────────────────────
+try:
+    from strategy_config import to_market_code
+except ImportError:
+    def to_market_code(c):
+        c = str(c).zfill(6)
+        if c.startswith(("60", "68", "688")):
+            return f"sh{c}"
+        if c.startswith(("00", "30")):
+            return f"sz{c}"
+        return f"sh{c}"
+
+try:
+    from stock_analyzer import enrich_stock, build_risk_hint, split_wechat_message
+except ImportError:
+    enrich_stock = build_risk_hint = split_wechat_message = None
+
+try:
+    from data.cn_stock_data import CNStockDataFetcher
+except ImportError:
+    try:
+        from hedge_fund.data.cn_stock_data import CNStockDataFetcher
+    except ImportError:
+        CNStockDataFetcher = None
+
+try:
+    from llm.client import make_llm, extract_json
+except ImportError:
+    try:
+        from hedge_fund.llm.client import make_llm, extract_json
+    except ImportError:
+        make_llm = None
+        extract_json = None
+
+
+# ── 配置 ─────────────────────────────────────────────────────────────────
+HOLDINGS_FILE = os.environ.get("HOLDINGS_FILE", "my_holdings.json")
+EXPERIENCE_FILE = os.environ.get("EXPERIENCE_FILE", "skills_memory.json")
+WECHAT_WEBHOOK = os.environ.get("WECHAT_WEBHOOK", "").strip()
+_LLM_TIMEOUT = float(os.environ.get("ANALYSIS_LLM_TIMEOUT", "45"))
+
+
+# ==========================================================
+# 1. 视觉 OCR：从持仓截图识别 代码 / 数量 / 价格
+# ==========================================================
+def _vision_config():
+    key = os.environ.get("VISION_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
+    base = os.environ.get("VISION_API_BASE") or "https://api.openai.com/v1"
+    model = os.environ.get("VISION_MODEL") or "gpt-4o"
+    return key, base, model
+
+
+def vision_ocr_image(image_bytes: bytes, mime: str = "image/jpeg", timeout: int = 60) -> List[Dict]:
+    """调用多模态大模型，从持仓截图识别每只持仓股。返回持仓字典列表。"""
+    key, base, model = _vision_config()
+    if not key:
+        raise RuntimeError("未配置 VISION_API_KEY / OPENAI_API_KEY，无法做截图 OCR。")
+
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    data_url = f"data:{mime};base64,{b64}"
+    system = (
+        "你是A股账户持仓识别助手。用户会发送一张券商App的『持仓/资产』截图。"
+        "请从中提取每一只持仓股票的：股票代码(6位数字)、股票名称、持仓数量(股)、"
+        "成本价(元)、最新价(元，若截图有则填，看不清则留空)。只输出JSON数组，不要多余文字。"
+    )
+    user = (
+        "请识别这张持仓截图，严格返回如下结构的JSON数组（看不清的字段填空字符串或0）：\n"
+        '[ {"code":"600000","name":"浦发银行","quantity":1000,"cost_price":10.50,"current_price":10.80} ]'
+    )
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": [
+                {"type": "text", "text": user},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ]},
+        ],
+        "max_tokens": 1500,
+        "temperature": 0,
+    }
+    r = requests.post(
+        f"{base}/chat/completions",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload, timeout=timeout,
+    )
+    r.raise_for_status()
+    content = r.json()["choices"][0]["message"]["content"]
+    return _parse_holdings_json(content)
+
+
+def _parse_holdings_json(text: str) -> List[Dict]:
+    raw = None
+    try:
+        if extract_json is not None:
+            raw = extract_json(text)
+        else:
+            import re as _re
+            m = _re.search(r"\[.*\]", text, _re.DOTALL)
+            raw = json.loads(m.group(0)) if m else json.loads(text)
+    except Exception:
+        # 退一步：尝试直接 loads
+        try:
+            raw = json.loads(text.strip())
+        except Exception:
+            raise RuntimeError(f"无法从视觉模型返回中解析持仓JSON: {text[:200]}")
+
+    items = raw if isinstance(raw, list) else raw.get("holdings", [])
+    holdings = []
+    for it in items:
+        code = str(it.get("code") or "").strip()
+        # 容错：去掉 sh/sz 前缀、补齐 6 位
+        code = code.replace("sh", "").replace("sz", "").replace("bj", "").strip()
+        if not (code.isdigit() and len(code) == 6):
+            continue
+        try:
+            qty = float(str(it.get("quantity") or 0))
+            cost = float(str(it.get("cost_price") or 0))
+            cur = float(str(it.get("current_price") or 0))
+        except (ValueError, TypeError):
+            continue
+        holdings.append({
+            "code": code,
+            "name": str(it.get("name") or code),
+            "quantity": qty,
+            "cost_price": cost,
+            "current_price": cur,
+        })
+    return holdings
+
+
+# ==========================================================
+# 2. 持仓文件读写
+# ==========================================================
+def save_holdings(holdings: List[Dict]):
+    payload = {"updated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "holdings": holdings}
+    with open(HOLDINGS_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"💾 持仓已写入 {HOLDINGS_FILE}（共 {len(holdings)} 只）")
+
+
+def load_holdings() -> List[Dict]:
+    if os.path.exists(HOLDINGS_FILE):
+        try:
+            with open(HOLDINGS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return data.get("holdings", []) if isinstance(data, dict) else data
+        except Exception:
+            return []
+    return []
+
+
+# ==========================================================
+# 3. 实时价格
+# ==========================================================
+def fetch_realtime_price(code: str) -> float:
+    tc = to_market_code(code)
+    try:
+        res = requests.get(f"http://qt.gtimg.cn/q={tc}", timeout=4)
+        if res.status_code == 200 and '="' in res.text:
+            fields = res.text.split('="')[1].split("~")
+            p = float(fields[3] or 0)
+            if p > 0:
+                return p
+    except Exception:
+        pass
+    return 0.0
+
+
+# ==========================================================
+# 4. 个股分析（LLM 优先 + 模板降级）
+# ==========================================================
+def _template_decision(code: str, name: str, cost: float, cur: float, snap: dict) -> Dict:
+    """无 LLM 时的降级结构化建议。"""
+    if cost <= 0:
+        cost = cur or 1.0
+    stop = round(cost * 0.95, 2)
+    tp = round(cost * 1.08, 2)
+    t_buy = round(min(cur, cost) * 0.99, 2)
+    t_sell = round(max(cur, cost) * 1.01, 2)
+    pnl_pct = ((cur - cost) / cost * 100) if cost > 0 else 0.0
+    if pnl_pct >= 8:
+        action = "持有/可做T"
+    elif pnl_pct <= -5:
+        action = "观望/控仓"
+    else:
+        action = "持有"
+    fin = snap.get("financials", {}) or {}
+    net = fin.get("净利润同比", "-")
+    cap = snap.get("capital_flow", "暂无")
+    attribution = (
+        f"当前{'盈利' if pnl_pct >= 0 else '亏损'} {pnl_pct:+.2f}%，"
+        f"净利润同比 {net}，主力净流入 {cap}；"
+        f"归因：{'基本面与资金面共振' if ('-' not in str(net) and not str(net).startswith('-')) else '盈利或资金承压'}。"
+    )
+    return {
+        "action": action, "t_buy": t_buy, "t_sell": t_sell,
+        "stop_loss": stop, "take_profit": tp,
+        "attribution": attribution,
+        "comment": f"按成本 {cost}元、现价 {cur}元 测算，注意止损纪律。",
+    }
+
+
+def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
+    code = str(h["code"]).zfill(6)
+    name = h.get("name", code)
+    cost = float(h.get("cost_price") or 0)
+    cur = float(h.get("current_price") or 0) or fetch_realtime_price(code)
+    qty = float(h.get("quantity") or 0)
+
+    snap = {}
+    if enrich_stock is not None:
+        try:
+            snap = enrich_stock(code, name, cur)
+        except Exception as e:
+            print(f"⚠️ 富集 {name}({code}) 失败: {e}")
+            snap = {}
+    if not snap:
+        snap = {"financials": {}, "dividend_yield": "暂无", "capital_flow": "暂无", "news": []}
+
+    pnl = (cur - cost) * qty
+    pnl_pct = ((cur - cost) / cost * 100) if cost > 0 else 0.0
+
+    decision = None
+    if make_llm is not None:
+        try:
+            llm = make_llm(timeout=_LLM_TIMEOUT, max_tokens=800)
+            system = (
+                "你是A股资深投顾。基于给定持仓与多维度资料，输出严格的JSON（不要多余文字），字段：\n"
+                "action(持有/加仓/减仓/做T/观望/止损)、t_buy(做T低吸买点,元)、"
+                "t_sell(做T高抛卖点,元)、stop_loss(止损价,元)、take_profit(止盈价,元)、"
+                "attribution(盈亏原因归因,1-2句，结合财报/资金/消息/大盘)、comment(一句话操作点评)。"
+                "做T区间应围绕成本价与现价给出可操作的低吸高抛价位。"
+            )
+            news = snap.get("news", []) or []
+            news_str = "；".join(n.get("title", "") for n in news[:3]) or "暂无重大舆情"
+            fin = snap.get("financials", {}) or {}
+            user = (
+                f"持仓：{name}({code}) 成本价{cost}元 现价{cur}元 数量{qty}股 盈亏{pnl_pct:+.2f}%\n"
+                f"财报：{fin} 股息率：{snap.get('dividend_yield')} 主力净流入：{snap.get('capital_flow')}\n"
+                f"舆情：{news_str}\n"
+                f"{lessons_ctx}"
+            )
+            out = llm.complete(system, user).strip().replace("```", "").strip()
+            parsed = extract_json(out) if extract_json else json.loads(out)
+            decision = {
+                "action": parsed.get("action", "持有"),
+                "t_buy": float(parsed.get("t_buy") or round(min(cur, cost) * 0.99, 2)),
+                "t_sell": float(parsed.get("t_sell") or round(max(cur, cost) * 1.01, 2)),
+                "stop_loss": float(parsed.get("stop_loss") or round(cost * 0.95, 2)),
+                "take_profit": float(parsed.get("take_profit") or round(cost * 1.08, 2)),
+                "attribution": str(parsed.get("attribution", "")),
+                "comment": str(parsed.get("comment", "")),
+            }
+        except Exception as e:
+            print(f"⚠️ LLM 分析 {name}({code}) 失败，降级模板: {e}")
+
+    if decision is None:
+        decision = _template_decision(code, name, cost, cur, snap)
+
+    return {
+        "code": code, "name": name, "quantity": qty,
+        "cost_price": cost, "current_price": cur,
+        "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 2),
+        "dividend_yield": snap.get("dividend_yield", "暂无"),
+        "capital_flow": snap.get("capital_flow", "暂无"),
+        "risk_hint": build_risk_hint(snap, "") if build_risk_hint else "",
+        "news": [n.get("title", "") for n in (snap.get("news") or [])][:3],
+        **decision,
+    }
+
+
+def analyze_all(holdings: List[Dict], lessons_ctx: str = "") -> List[Dict]:
+    results = []
+    for h in holdings:
+        results.append(analyze_holding(h, lessons_ctx))
+    return results
+
+
+# ==========================================================
+# 5. 每日详细总结
+# ==========================================================
+def build_daily_summary(results: List[Dict]) -> str:
+    today = time.strftime("%Y-%m-%d")
+    total_pnl = sum(r["pnl"] for r in results)
+    total_cost = sum(r["cost_price"] * r["quantity"] for r in results)
+    total_pct = (total_pnl / total_cost * 100) if total_cost > 0 else 0.0
+
+    lines = [
+        f"📊 **【我的持仓 · 每日详细总结】** ({today})",
+        f"-----------------------------------",
+        f"持仓标的：{len(results)} 只 | 总浮动盈亏：`{total_pnl:+.2f}元` ({total_pct:+.2f}%)",
+        f"-----------------------------------",
+    ]
+    for r in results:
+        icon = "🟢" if r["pnl"] >= 0 else "🔴"
+        lines.append(
+            f"{icon} **{r['name']}** (`{r['code']}`) × {int(r['quantity'])}股\n"
+            f"• 成本 `{r['cost_price']:.2f}` / 现价 `{r['current_price']:.2f}` → 盈亏 `{r['pnl']:+.2f}元` ({r['pnl_pct']:+.2f}%)\n"
+            f"• 操作建议：**{r['action']}**\n"
+            f"• 做T区间：低吸 `{r['t_buy']:.2f}` ~ 高抛 `{r['t_sell']:.2f}`\n"
+            f"• 止损 `{r['stop_loss']:.2f}` / 止盈 `{r['take_profit']:.2f}`\n"
+            f"• 资金面：主力净流入 {r['capital_flow']} | 股息率 {r['dividend_yield']}\n"
+            f"• 盈亏归因：{r['attribution']}\n"
+            f"• 点评：{r['comment']}\n"
+            f"• 舆情：{('；'.join(r['news']) if r['news'] else '暂无重大舆情')}"
+        )
+        lines.append("-----------------------------------")
+
+    lines.append("💡 提示：以上为量化+基本面辅助参考，非投资建议；做T需结合实时盘口与手续费成本。")
+    return "\n".join(lines)
+
+
+# ==========================================================
+# 6. 推送（企业微信分段）
+# ==========================================================
+def push_wechat(text: str) -> bool:
+    if not WECHAT_WEBHOOK:
+        print("⚠️ 未配置 WECHAT_WEBHOOK，跳过企业微信推送（仅打印）。")
+        print(text)
+        return False
+    parts = split_wechat_message(text, 1800) if split_wechat_message else [text]
+    ok = True
+    for p in parts:
+        payload = {"msgtype": "markdown", "markdown": {"content": p.replace("```", "")}}
+        try:
+            res = requests.post(WECHAT_WEBHOOK, json=payload,
+                                headers={"Content-Type": "application/json"}, timeout=10)
+            if res.json().get("errcode") != 0:
+                ok = False
+        except Exception:
+            ok = False
+        time.sleep(1)
+    return ok
+
+
+# ==========================================================
+# 7. 经验记忆（自动进化 Skill）
+# ==========================================================
+_SEED_LESSONS = [
+    "A股做T需覆盖手续费与滑点，单笔价差一般需 >0.3% 才划算，震荡市优于单边市。",
+    "放量滞涨（量比高但涨幅小）往往是出货信号，谨慎追高。",
+    "缩量回调不破关键均线（如20日线）多为洗盘，可逢低关注而非恐慌止损。",
+    "财报披露窗口期（业绩预告/季报）前后波动加大，应提前收紧止损。",
+    "弱势市场中亏损标的应优先控仓，避免摊平亏损（向下加仓）。",
+    "主力连续净流入但股价不涨，需警惕对倒或利好兑现，不宜盲目乐观。",
+]
+
+
+class ExperienceMemory:
+    """持仓分析 Skill 的经验记忆：沉淀教训/案例，分析时检索注入，逐步降低误判。"""
+
+    def __init__(self, path: str = EXPERIENCE_FILE):
+        self.path = path
+        self.data = {"lessons": [], "cases": []}
+        self._load()
+
+    def _load(self):
+        if os.path.exists(self.path):
+            try:
+                with open(self.path, "r", encoding="utf-8") as f:
+                    self.data = json.load(f)
+                if not isinstance(self.data.get("lessons"), list):
+                    self.data["lessons"] = []
+                if not isinstance(self.data.get("cases"), list):
+                    self.data["cases"] = []
+            except Exception:
+                self.data = {"lessons": [], "cases": []}
+        # 首次运行注入基线经验
+        if not self.data["lessons"]:
+            for t in _SEED_LESSONS:
+                self.data["lessons"].append({"date": "seed", "tag": "通用", "text": t, "weight": 1.0})
+            self._save()
+
+    def _save(self):
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+
+    def add_lesson(self, text: str, tag: str = "用户反馈"):
+        self.data["lessons"].append({
+            "date": time.strftime("%Y-%m-%d"), "tag": tag, "text": text, "weight": 1.0,
+        })
+        self._save()
+        print(f"🧠 已沉淀经验：{text[:40]}…")
+
+    def add_case(self, code: str, decision: str, outcome: str, note: str = ""):
+        self.data["cases"].append({
+            "date": time.strftime("%Y-%m-%d"), "code": code,
+            "decision": decision, "outcome": outcome, "note": note,
+        })
+        self._save()
+
+    def retrieve_relevant(self, query: str, k: int = 5) -> str:
+        """按关键词重叠检索最相关经验，返回提示词上下文。"""
+        q_tokens = set(query)
+        scored = []
+        for les in self.data["lessons"]:
+            text = les.get("text", "")
+            overlap = len(set(text) & q_tokens)
+            score = overlap * les.get("weight", 1.0)
+            scored.append((score, text))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        top = [t for s, t in scored[:k] if s > 0]
+        if not top:
+            top = [t for _, t in scored[:3]]
+        if not top:
+            return ""
+        return "【历史经验/避坑指南，请结合参考以降低误判】\n" + "\n".join(f"- {t}" for t in top)
+
+    def auto_evolve(self, win_rate_by_strategy: Dict[str, Dict]):
+        """由复盘胜率自动沉淀经验（SKILL_AUTO_EVOLVE 开启时调用）。"""
+        if os.environ.get("SKILL_AUTO_EVOLVE", "true").lower() not in ("true", "1", "yes"):
+            return
+        for strat, info in win_rate_by_strategy.items():
+            total = info.get("total", 0)
+            win = info.get("win", 0)
+            if total >= 5 and win / total < 0.45:
+                text = (
+                    f"策略『{strat}』在历史 {total} 个样本中胜率仅 {win/total*100:.0f}%，"
+                    f"偏低，建议对该类标的收紧止损(如-4%)或降低单次仓位，并提高放量滞涨的警觉。"
+                )
+                # 避免重复沉淀：同类策略教训已有则跳过
+                if not any(strat in l.get("text", "") for l in self.data["lessons"]):
+                    self.add_lesson(text, tag="自动进化")
+
+
+# ==========================================================
+# 8. 流水线编排
+# ==========================================================
+def run_from_image(image_path: str) -> str:
+    with open(image_path, "rb") as f:
+        img_bytes = f.read()
+    mime = "image/png" if image_path.lower().endswith(".png") else "image/jpeg"
+    return run_from_image_bytes(img_bytes, mime)
+
+
+def run_from_image_bytes(img_bytes: bytes, mime: str = "image/jpeg") -> str:
+    print("🔍 正在用视觉模型识别持仓截图…")
+    holdings = vision_ocr_image(img_bytes, mime)
+    if not holdings:
+        return "⚠️ 未能从截图中识别到持仓，请确认截图清晰且为券商持仓页面。"
+    save_holdings(holdings)
+    return _analyze_and_summarize(holdings)
+
+
+def run_from_holdings_file(path: str) -> str:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    holdings = data.get("holdings", data) if isinstance(data, dict) else data
+    save_holdings(holdings)
+    return _analyze_and_summarize(holdings)
+
+
+def run_daily() -> str:
+    holdings = load_holdings()
+    if not holdings:
+        return "⚠️ 暂无持仓数据。请先发送持仓截图，或执行 --image / --holdings-file 录入。"
+    return _analyze_and_summarize(holdings)
+
+
+def _analyze_and_summarize(holdings: List[Dict]) -> str:
+    mem = ExperienceMemory()
+    # 汇总查询用于经验检索
+    query = " ".join(f"{h.get('name','')}{h.get('code','')}" for h in holdings)
+    lessons_ctx = mem.retrieve_relevant(query)
+    results = analyze_all(holdings, lessons_ctx)
+    summary = build_daily_summary(results)
+    push_wechat(summary)
+    print("🎉 持仓每日总结已生成并推送！")
+    return summary
+
+
+# ==========================================================
+# 9. CLI
+# ==========================================================
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(description="持仓截图分析 + 每日总结 + 自动进化 Skill")
+    ap.add_argument("--image", help="持仓截图路径（jpg/png），识别后分析推送")
+    ap.add_argument("--holdings-file", help="直接传入持仓JSON文件（免OCR，便于测试）")
+    ap.add_argument("--daily", action="store_true", help="用已存持仓做每日详细总结")
+    ap.add_argument("--feedback", help="手动沉淀一条经验到 Skill 记忆")
+    args = ap.parse_args()
+
+    if args.feedback:
+        ExperienceMemory().add_lesson(args.feedback, tag="用户反馈")
+    elif args.image:
+        print(run_from_image(args.image))
+    elif args.holdings_file:
+        print(run_from_holdings_file(args.holdings_file))
+    elif args.daily:
+        print(run_daily())
+    else:
+        ap.print_help()

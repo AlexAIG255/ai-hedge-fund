@@ -14,6 +14,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../../.." && pwd)"   # scheduler → strategies → hedge_fund → 仓库根
 cd "$REPO"
 
+# 🛌 交易日守卫：周末 / 法定节假日自动跳过（不刷屏、不浪费 API）
+# 优先用 chinese_calendar；未安装则回退到内置 A 股休市表（trading_calendar.py）。
+GUARD_PY="${PYTHON:-python3}"
+if ! "$GUARD_PY" -c "import sys; sys.path.insert(0, 'hedge_fund/strategies'); from trading_calendar import today_is_trading_day; sys.exit(0 if today_is_trading_day() else 1)"; then
+    echo "[$(date '+%F %T')] 今日休市（周末/节假日），跳过 $JOB。" >> "logs/$JOB.log"
+    exit 0
+fi
+
 # 如使用虚拟环境，自动激活（无则忽略）
 if [ -f "$REPO/.venv/bin/activate" ]; then
     # shellcheck disable=SC1091
@@ -33,11 +41,15 @@ case "$JOB" in
         "$PY" hedge_fund/strategies/evening_review.py >> logs/evening.log 2>&1
         ;;
     intraday)
-        echo "[$(date '+%F %T')] 启动 盘中监控..." >> logs/intraday.log
-        "$PY" hedge_fund/strategies/evening_review.py --mode intraday >> logs/intraday.log 2>&1
+        echo "[$(date '+%F %T')] 启动 盘中异动监控..." >> logs/intraday.log
+        "$PY" hedge_fund/strategies/intraday_monitor.py >> logs/intraday.log 2>&1
+        ;;
+    holdings)
+        echo "[$(date '+%F %T')] 启动 持仓每日总结..." >> logs/holdings.log
+        "$PY" hedge_fund/strategies/holding_analyzer.py --daily >> logs/holdings.log 2>&1
         ;;
     *)
-        echo "未知任务: $JOB (可选 morning|evening|intraday)"
+        echo "未知任务: $JOB (可选 morning|evening|intraday|holdings)"
         exit 1
         ;;
 esac

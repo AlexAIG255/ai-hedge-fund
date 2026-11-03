@@ -66,6 +66,12 @@ except ImportError:
     enrich_stock = generate_analysis_text = build_risk_hint = None
     summarize_for_feishu = split_wechat_message = None
 
+# 🧠 引入持仓分析的经验记忆（自动进化 Skill）：复盘结果沉淀为经验，降低误判
+try:
+    from holding_analyzer import ExperienceMemory
+except ImportError:
+    ExperienceMemory = None
+
 # ⚙️ 飞书多维表格 API 配置
 FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "").strip()
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "").strip()
@@ -538,6 +544,34 @@ class EveningReviewAgent:
         total = len(completed)
         win_count = sum(1 for i in completed if i.get("status") == "WIN")
         win_rate = (win_count / total * 100) if total > 0 else 0.0
+
+        # ── 自动进化 Skill：把今日结案的持仓沉淀为案例，并按胜率沉淀教训 ──
+        if ExperienceMemory is not None:
+            try:
+                mem = ExperienceMemory()
+                today_str = time.strftime("%Y-%m-%d")
+                # 仅记录今日新结案的标的，避免重复写入
+                for it in completed:
+                    if str(it.get("close_date", "")) == today_str:
+                        decision = "持有" if it.get("status") == "WIN" else "止损/离场"
+                        outcome = "盈利" if it.get("status") == "WIN" else "亏损"
+                        mem.add_case(
+                            code=str(it.get("code", "")).zfill(6),
+                            decision=decision,
+                            outcome=outcome,
+                            note=str(it.get("reason", ""))[:80],
+                        )
+                # 按策略统计胜率，自动沉淀低胜率教训
+                by_strategy: Dict[str, Dict[str, int]] = {}
+                for it in completed:
+                    s = it.get("strategy", "综合选股")
+                    d = by_strategy.setdefault(s, {"total": 0, "win": 0})
+                    d["total"] += 1
+                    if it.get("status") == "WIN":
+                        d["win"] += 1
+                mem.auto_evolve(by_strategy)
+            except Exception as e:
+                print(f"⚠️ 经验记忆更新失败（不影响主流程）: {e}")
 
         content = (
             f"# 🤖 Agent 2 晚间复盘 Skill 策略迭代日志\n\n"
