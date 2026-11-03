@@ -10,7 +10,8 @@ strategy_config.py — 全局策略与风控配置中心
 你日常调参只改这个文件即可，不用动两个 Agent 的逻辑。
 """
 
-from typing import Dict
+import os
+from typing import Dict, List, Tuple
 
 # ───────────────────────── 1. 策略名称映射（key ↔ 中文名） ─────────────────────────
 # morning_picker 内部用 key（如 TRIPLE_VOLUME），evening_review / 飞书用中文名。
@@ -41,8 +42,8 @@ def is_triple_volume(strategy) -> bool:
 # ───────────────────────── 2. 止损 / 止盈 比例（相对建仓价） ─────────────────────────
 # 例如 0.95 表示：止损价 = 建仓价 × 0.95（即 -5% 离场）。
 STOP_LOSS_RATIO = {
-    "default": 0.95,      # 综合选股：默认 -5% 止损
-    "三倍量战法": 0.96,    # 三倍量：更紧， -4% 止损
+    "default": 0.96,      # 稳健型：默认 -4% 止损（少利润、先保本金）
+    "三倍量战法": 0.97,    # 三倍量：更紧， -3% 止损
 }
 TAKE_PROFIT_RATIO = {
     "default": 1.08,      # 综合选股：默认 +8% 止盈
@@ -142,3 +143,85 @@ ANOMALY_THRESHOLDS = {
 def get_anomaly_thresholds() -> dict:
     """返回盘中异动阈值的副本，供监控模块调用。"""
     return dict(ANOMALY_THRESHOLDS)
+
+
+# ───────────────────────── 7. 稳健型模式（右侧交易 + 重视资金 + 控风险） ─────────────────────────
+# 用户明确偏好：稳健型，以右侧交易为主、重视资金面，可接受少利润但避免高风险。
+# 该模式在「保留原 8 大策略信号」基础上叠加硬性过滤与再排序，提高胜率、降低回撤。
+STEADY_MODE = os.environ.get("STEADY_MODE", "true").lower() in ["true", "1", "yes"]
+
+STEADY_PARAMS = {
+    # ① 重视资金：要求当日主力净流入 > 0（元），资金不流入一票否决
+    "require_main_inflow": True,
+    "min_main_inflow_yi": 0.0,          # 主力净流入下限（亿元），0 表示只要为正即可
+    # ② 右侧交易：要求现价 > MA20 且 MA20 向上（不在下降趋势里抄底）
+    "require_right_side": True,
+    # ③ 控风险：剔除小盘妖股，流通市值 ≥ 该值（元）。默认 50 亿
+    "min_float_mcap": float(os.environ.get("STEADY_MIN_FLOAT_MCAP", "5e9")),
+    # ④ 不追高：60 日涨幅上限（%），避免追入已大幅拉升的标的
+    "max_pct_60d": float(os.environ.get("STEADY_MAX_PCT_60D", "40")),
+    # ⑤ 估值护栏：PE(TTM) 上限（亏损股 PE 为负，单独放行但会在风险提示里标注）
+    "max_pe": float(os.environ.get("STEADY_MAX_PE", "80")),
+    # ⑥ 稳健型更紧的止损（相对建仓价）：少利润、先保本金
+    "steady_stop_loss_ratio": 0.96,     # -4% 止损（原默认 -5%）
+}
+
+# 稳健型更偏好的策略（排序时优先）：右侧/趋势/无人问津 优于 三倍量/超跌反弹
+STEADY_STRATEGY_PRIORITY = {
+    "多头向上的圆月线": 0,
+    "右侧启动": 1,
+    "买在无人问津处": 2,
+    "出水芙蓉": 3,
+    "底部放量反转": 4,
+    "超跌反包强势": 5,
+    "超跌反弹": 6,
+    "三倍量战法": 7,
+}
+
+
+def get_steady_params() -> dict:
+    return dict(STEADY_PARAMS)
+
+
+def apply_steady_filter(item: Dict, capital_net: float = None, float_mcap: float = None,
+                        ma20: float = 0.0, ma20_prev: float = 0.0, price: float = 0.0,
+                        pe: float = None) -> Tuple[bool, List[str]]:
+    """
+    稳健型硬性过滤。返回 (是否通过, 未通过原因列表)。
+    任一硬性条件不满足即淘汰；用于「保留原策略信号 + 叠加稳健护栏」。
+    """
+    p = STEADY_PARAMS
+    blocked = []
+
+    # ① 重视资金：主力净流入必须为正
+    if p["require_main_inflow"]:
+        if capital_net is None or capital_net <= p["min_main_inflow_yi"] * 1e8:
+            blocked.append("主力资金未净流入")
+
+    # ② 右侧交易：现价 > MA20 且 MA20 向上
+    if p["require_right_side"]:
+        if price > 0 and ma20 > 0 and price < ma20:
+            blocked.append("价格跌破MA20(非右侧)")
+        if ma20 > 0 and ma20_prev > 0 and ma20 <= ma20_prev:
+            blocked.append("MA20未向上(趋势未确认)")
+
+    # ③ 剔除小盘妖股
+    if float_mcap is not None and float_mcap < p["min_float_mcap"]:
+        blocked.append(f"流通市值过小(<{p['min_float_mcap']/1e8:.0f}亿)")
+
+    # ④ 不追高
+    pct_60d = float(item.get("pct_60d", 0) or 0)
+    if pct_60d > p["max_pct_60d"]:
+        blocked.append(f"60日涨幅过大({pct_60d:+.0f}%)")
+
+    # ⑤ 估值护栏（PE 为正且超上限才淘汰；负值亏损股放行并标注）
+    if pe is not None and pe > p["max_pe"]:
+        blocked.append(f"估值偏高(PE {pe:.0f})")
+
+    return (len(blocked) == 0), blocked
+
+
+def steady_priority(strategy: str) -> int:
+    """稳健型排序优先级（越小越优先）。"""
+    name = strategy_name(strategy)
+    return STEADY_STRATEGY_PRIORITY.get(name, 9)

@@ -75,6 +75,19 @@ EXPERIENCE_FILE = os.environ.get("EXPERIENCE_FILE", "skills_memory.json")
 WECHAT_WEBHOOK = os.environ.get("WECHAT_WEBHOOK", "").strip()
 _LLM_TIMEOUT = float(os.environ.get("ANALYSIS_LLM_TIMEOUT", "45"))
 
+# 🪶 Token / 字数 控制（免费额度或本地模型都更省）
+VISION_MAX_IMAGE_SIDE = int(os.environ.get("VISION_MAX_IMAGE_SIDE", "1280"))  # 截图最长边压缩到此像素
+VISION_MAX_TOKENS = int(os.environ.get("VISION_MAX_TOKENS", "900"))          # 视觉OCR输出上限
+ANALYSIS_LLM_MAX_TOKENS = int(os.environ.get("ANALYSIS_LLM_MAX_TOKENS", "600"))  # 文本分析输出上限
+SUMMARY_MAX_CHARS = int(os.environ.get("SUMMARY_MAX_CHARS", "100000"))        # 单只持仓总结字数软上限
+
+# 🔗 可选：Dify 后端（把分析/识图走 Dify 的免费模型）。默认关闭，配置 DIFY_API_KEY 并设
+#    DIFY_ENABLED=true 才启用。这样你给 Dify 控制权后，可由 Dify 侧选免费 API、限流、控字数。
+DIFY_API_URL = os.environ.get("DIFY_API_URL", "https://api.dify.ai/v1/chat-messages")
+DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "").strip()
+DIFY_ENABLED = bool(DIFY_API_KEY) and os.environ.get("DIFY_ENABLED", "false").lower() in ("true", "1", "yes")
+DIFY_USER = os.environ.get("DIFY_USER", "hedge-fund-bot")
+
 
 # ==========================================================
 # 1. 视觉 OCR：从持仓截图识别 代码 / 数量 / 价格
@@ -86,22 +99,68 @@ def _vision_config():
     return key, base, model
 
 
+def _resize_image(image_bytes: bytes, max_side: int = VISION_MAX_IMAGE_SIDE) -> bytes:
+    """把截图压缩到最长边 max_side 以内再转 base64，显著减少视觉 token 消耗。
+    PIL 不可用时原样返回（仍可工作，只是 token 偏多）。"""
+    if not max_side or max_side <= 0:
+        return image_bytes
+    try:
+        from io import BytesIO
+        from PIL import Image
+    except Exception:
+        return image_bytes
+    try:
+        img = Image.open(BytesIO(image_bytes))
+        img = img.convert("RGB")
+        if max(img.size) > max_side:
+            ratio = max_side / max(img.size)
+            new_size = (int(img.size[0] * ratio), int(img.size[1] * ratio))
+            img = img.resize(new_size, Image.LANCZOS)
+        out = BytesIO()
+        img.save(out, format="JPEG", quality=82)
+        return out.getvalue()
+    except Exception as e:
+        print(f"⚠️ 截图压缩失败，使用原图: {e}")
+        return image_bytes
+
+
+def _dify_chat(system: str, user: str, max_tokens: int) -> str:
+    """走 Dify Chatflow/对话型应用（可用其绑定的免费模型）。返回模型文本。"""
+    if not DIFY_API_KEY:
+        raise RuntimeError("未配置 DIFY_API_KEY")
+    payload = {
+        "inputs": {},
+        "query": f"{system}\n\n{user}",
+        "response_mode": "blocking",
+        "user": DIFY_USER,
+    }
+    r = requests.post(
+        DIFY_API_URL,
+        headers={"Authorization": f"Bearer {DIFY_API_KEY}", "Content-Type": "application/json"},
+        json=payload, timeout=_LLM_TIMEOUT + 30,
+    )
+    r.raise_for_status()
+    return r.json().get("answer", "")
+
+
 def vision_ocr_image(image_bytes: bytes, mime: str = "image/jpeg", timeout: int = 60) -> List[Dict]:
     """调用多模态大模型，从持仓截图识别每只持仓股。返回持仓字典列表。"""
     key, base, model = _vision_config()
     if not key:
         raise RuntimeError("未配置 VISION_API_KEY / OPENAI_API_KEY，无法做截图 OCR。")
 
+    # 🪶 压缩截图尺寸 → 省视觉 token
+    image_bytes = _resize_image(image_bytes, VISION_MAX_IMAGE_SIDE)
     b64 = base64.b64encode(image_bytes).decode("ascii")
-    data_url = f"data:{mime};base64,{b64}"
+    data_url = f"data:image/jpeg;base64,{b64}"
     system = (
-        "你是A股账户持仓识别助手。用户会发送一张券商App的『持仓/资产』截图。"
-        "请从中提取每一只持仓股票的：股票代码(6位数字)、股票名称、持仓数量(股)、"
-        "成本价(元)、最新价(元，若截图有则填，看不清则留空)。只输出JSON数组，不要多余文字。"
+        "你是A股持仓识别助手。从券商App『持仓』截图提取每只股票："
+        "code(6位代码)、name、quantity(股)、cost_price(成本)、current_price(现价,看不清留空)。"
+        "只输出JSON数组，不要多余文字。"
     )
     user = (
-        "请识别这张持仓截图，严格返回如下结构的JSON数组（看不清的字段填空字符串或0）：\n"
-        '[ {"code":"600000","name":"浦发银行","quantity":1000,"cost_price":10.50,"current_price":10.80} ]'
+        "识别此持仓截图，返回JSON数组（看不清填0或空）：\n"
+        '[ {"code":"600000","name":"浦发银行","quantity":1000,"cost_price":10.5,"current_price":10.8} ]'
     )
     payload = {
         "model": model,
@@ -112,7 +171,7 @@ def vision_ocr_image(image_bytes: bytes, mime: str = "image/jpeg", timeout: int 
                 {"type": "image_url", "image_url": {"url": data_url}},
             ]},
         ],
-        "max_tokens": 1500,
+        "max_tokens": VISION_MAX_TOKENS,
         "temperature": 0,
     }
     r = requests.post(
@@ -232,8 +291,32 @@ def _template_decision(code: str, name: str, cost: float, cur: float, snap: dict
     return {
         "action": action, "t_buy": t_buy, "t_sell": t_sell,
         "stop_loss": stop, "take_profit": tp,
-        "attribution": attribution,
-        "comment": f"按成本 {cost}元、现价 {cur}元 测算，注意止损纪律。",
+        "attribution": _trim(attribution, 60),
+        "comment": _trim(f"按成本 {cost}元、现价 {cur}元 测算，注意止损纪律。", 40),
+    }
+
+
+def _trim(text: str, n: int) -> str:
+    text = str(text or "").strip()
+    return text if len(text) <= n else text[:n] + "…"
+
+
+def _assemble_decision(parsed: Dict, cost: float, cur: float) -> Dict:
+    """把 LLM/Dify 返回的 JSON 组装成决策字典，并控制字数、补默认值。"""
+    def num(v, default):
+        try:
+            return float(v)
+        except (ValueError, TypeError):
+            return default
+    return {
+        "action": _trim(str(parsed.get("action", "持有")), 8) or "持有",
+        "t_buy": num(parsed.get("t_buy"), round(min(cur, cost) * 0.99, 2)),
+        "t_sell": num(parsed.get("t_sell"), round(max(cur, cost) * 1.01, 2)),
+        "stop_loss": num(parsed.get("stop_loss"), round(cost * 0.95, 2)),
+        "take_profit": num(parsed.get("take_profit"), round(cost * 1.08, 2)),
+        # 🪶 字数控制：盈亏归因 ≤60 字、点评 ≤40 字，避免长文本刷屏/耗 token
+        "attribution": _trim(parsed.get("attribution", ""), 60),
+        "comment": _trim(parsed.get("comment", ""), 40),
     }
 
 
@@ -258,11 +341,33 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
     pnl_pct = ((cur - cost) / cost * 100) if cost > 0 else 0.0
 
     decision = None
-    if make_llm is not None:
+    # 优先 Dify（若启用），否则用本地/直连 LLM；都失败则模板降级
+    if DIFY_ENABLED:
         try:
-            llm = make_llm(timeout=_LLM_TIMEOUT, max_tokens=800)
             system = (
-                "你是A股资深投顾。基于给定持仓与多维度资料，输出严格的JSON（不要多余文字），字段：\n"
+                "你是A股资深投顾。基于持仓与多维资料，输出严格JSON（不要多余文字），字段："
+                "action(持有/加仓/减仓/做T/观望/止损)、t_buy(做T低吸价,元)、"
+                "t_sell(做T高抛价,元)、stop_loss(止损价,元)、take_profit(止盈价,元)、"
+                "attribution(盈亏归因1-2句,结合财报/资金/消息/大盘)、comment(一句话点评)。"
+            )
+            news = snap.get("news", []) or []
+            news_str = "；".join(n.get("title", "") for n in news[:3]) or "暂无重大舆情"
+            fin = snap.get("financials", {}) or {}
+            user = (
+                f"持仓：{name}({code}) 成本{cost}元 现价{cur}元 数量{qty}股 盈亏{pnl_pct:+.2f}%\n"
+                f"财报：{fin} 股息率：{snap.get('dividend_yield')} 主力净流入：{snap.get('capital_flow')}\n"
+                f"舆情：{news_str}\n{lessons_ctx}"
+            )
+            out = _dify_chat(system, user, ANALYSIS_LLM_MAX_TOKENS).strip().replace("```", "").strip()
+            parsed = extract_json(out) if extract_json else json.loads(out)
+            decision = _assemble_decision(parsed, cost, cur)
+        except Exception as e:
+            print(f"⚠️ Dify 分析 {name}({code}) 失败，降级模板: {e}")
+    elif make_llm is not None:
+        try:
+            llm = make_llm(timeout=_LLM_TIMEOUT, max_tokens=ANALYSIS_LLM_MAX_TOKENS)
+            system = (
+                "你是A股资深投顾。基于持仓与多维资料，输出严格JSON（不要多余文字），字段：\n"
                 "action(持有/加仓/减仓/做T/观望/止损)、t_buy(做T低吸买点,元)、"
                 "t_sell(做T高抛卖点,元)、stop_loss(止损价,元)、take_profit(止盈价,元)、"
                 "attribution(盈亏原因归因,1-2句，结合财报/资金/消息/大盘)、comment(一句话操作点评)。"
@@ -279,15 +384,7 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
             )
             out = llm.complete(system, user).strip().replace("```", "").strip()
             parsed = extract_json(out) if extract_json else json.loads(out)
-            decision = {
-                "action": parsed.get("action", "持有"),
-                "t_buy": float(parsed.get("t_buy") or round(min(cur, cost) * 0.99, 2)),
-                "t_sell": float(parsed.get("t_sell") or round(max(cur, cost) * 1.01, 2)),
-                "stop_loss": float(parsed.get("stop_loss") or round(cost * 0.95, 2)),
-                "take_profit": float(parsed.get("take_profit") or round(cost * 1.08, 2)),
-                "attribution": str(parsed.get("attribution", "")),
-                "comment": str(parsed.get("comment", "")),
-            }
+            decision = _assemble_decision(parsed, cost, cur)
         except Exception as e:
             print(f"⚠️ LLM 分析 {name}({code}) 失败，降级模板: {e}")
 

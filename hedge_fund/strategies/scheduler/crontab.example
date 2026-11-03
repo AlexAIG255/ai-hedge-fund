@@ -25,7 +25,9 @@ SCHEDULER=/path/to/ai-hedge-fund/hedge_fund/strategies/scheduler
 # 🌙 晚间复盘 16:00
 0 16 * * 1-5  $SCHEDULER/run_job.sh evening
 
-# 📊 持仓每日详细总结（20:30，用已录入持仓做买卖/做T/盈亏归因总结）
-30 20 * * 1-5 $SCHEDULER/run_job.sh holdings
+# 📊 持仓每日详细总结（可选，默认关闭）
+#   说明：依赖「持仓截图识别 / 已录入持仓」。当前若暂不启用截图分享持仓功能，
+#   保持下面这行注释即可；启用时取消注释，并先用 --image / --holdings-file 录入持仓。
+# 30 20 * * 1-5 $SCHEDULER/run_job.sh holdings
 
 # 注：以上所有任务在周末/法定节假日会被 run_job.sh 自动跳过（trading_calendar 守卫）。

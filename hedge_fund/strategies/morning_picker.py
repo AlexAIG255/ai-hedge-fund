@@ -18,7 +18,7 @@ import re
 import sys
 import time
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 from collections import defaultdict
 import requests
 
@@ -32,13 +32,17 @@ except ImportError:
 # 📁 确保 strategy_config.py（与本文件同目录）无论在哪运行都能被找到
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 🔧 引入集中配置（观察周期 / 止盈止损 / 追踪止损）
+# 🔧 引入集中配置（观察周期 / 止盈止损 / 追踪止损 / 稳健模式）
 try:
     from strategy_config import (
         strategy_name, is_triple_volume,
         compute_stop_loss, compute_take_profit, get_observation_days,
+        STEADY_MODE, apply_steady_filter, steady_priority,
     )
 except ImportError:
+    STEADY_MODE = False
+    apply_steady_filter = None
+    steady_priority = lambda s: 9
     # 容错：独立运行且无 config 时，退回原版固定比例
     def strategy_name(s): return str(s) if s else "综合选股"
     def is_triple_volume(s): return "三倍量" in (str(s) or "")
@@ -61,6 +65,15 @@ try:
 except ImportError:
     enrich_stock = generate_analysis_text = build_risk_hint = None
     summarize_for_feishu = split_wechat_message = None
+
+# 🛡️ 稳健模式需用到资金流 / 流通市值 实接口
+try:
+    from data.cn_stock_data import CNStockDataFetcher as _CNStockDataFetcher
+except ImportError:
+    try:
+        from hedge_fund.data.cn_stock_data import CNStockDataFetcher as _CNStockDataFetcher
+    except ImportError:
+        _CNStockDataFetcher = None
 
 # 🔒 Dify Chatflow 对话接口配置
 DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
@@ -739,6 +752,68 @@ class MorningStockPickerAgent:
         return True, primary_price
 
     # ==========================================
+    # 🛡️ 7b. 稳健型筛选（右侧交易 + 重视资金 + 控风险）
+    # ==========================================
+    @staticmethod
+    def _parse_pe(it: Dict) -> Optional[float]:
+        snap = it.get("_snap") or {}
+        fin = snap.get("financials", {}) or {}
+        pe_raw = str(fin.get("市盈率(TTM)", "-")).replace("%", "").replace("暂无", "")
+        try:
+            return float(pe_raw)
+        except ValueError:
+            return None
+
+    def _apply_steady_screening(self, items: List[Dict]) -> List[Dict]:
+        fetcher = _CNStockDataFetcher()
+        out = []
+        for it in items:
+            code = str(it.get("code", "")).strip()
+            name = str(it.get("name", ""))
+            try:
+                price = float(str(it.get("price", "0")).replace("元", "")) or 0.0
+                ma20 = float(it.get("ma20", 0) or 0)
+                ma20_prev = float(it.get("ma20_prev", 0) or 0)
+                pct_60d = float(it.get("pct_60d", 0) or 0)
+                pe = self._parse_pe(it)
+            except (ValueError, TypeError):
+                out.append(it)
+                continue
+
+            # ① 软筛（无额外请求）：右侧 + 小盘 + 不追高 + 估值护栏
+            ok_soft, reasons_soft = apply_steady_filter(
+                it, capital_net=1e9, float_mcap=1e15,
+                ma20=ma20, ma20_prev=ma20_prev, price=price, pe=pe,
+            )
+            if not ok_soft:
+                print(f"⛔ 稳健初筛淘汰 {name}({code}): {reasons_soft}")
+                continue
+
+            # ② 硬筛（拉资金流 + 流通市值）：重视资金、剔除小盘妖股
+            cap_net = fetcher.fetch_capital_flow_value(code)
+            fmc = fetcher.fetch_float_market_cap(code)
+            ok_hard, reasons_hard = apply_steady_filter(
+                it, capital_net=cap_net, float_mcap=fmc,
+                ma20=ma20, ma20_prev=ma20_prev, price=price, pe=pe,
+            )
+            if not ok_hard:
+                print(f"⛔ 稳健资金/市值筛淘汰 {name}({code}): {reasons_hard}")
+                continue
+
+            it["capital_net_yi"] = round((cap_net or 0) / 1e8, 2)
+            out.append(it)
+
+        if out:
+            # 按稳健优先级 + TrendIQ 重排：右侧/趋势策略优先，三倍量/超跌反弹靠后
+            out.sort(key=lambda x: (steady_priority(x.get("strategy_key", x.get("strategy", ""))), -float(x.get("trend_iq", 0))))
+            print(f"🛡️ 稳健筛选后保留 {len(out)} 只（右侧/资金/小盘/不追高护栏已生效）。")
+            return out
+
+        print("⚠️ 稳健模式初筛后无标的，回退至原候选（按稳健优先级排序）。")
+        items.sort(key=lambda x: (steady_priority(x.get("strategy_key", x.get("strategy", ""))), -float(x.get("trend_iq", 0))))
+        return items
+
+    # ==========================================
     # 📊 7. 核心选股引擎
     # ==========================================
     def run_strategy_pipeline(self) -> Tuple[List[Dict], List[str], str]:
@@ -807,6 +882,10 @@ class MorningStockPickerAgent:
                         "vol_ratio": f"{vol_ratio_val:.2f}",
                         "strategy": strat_name,
                         "strategy_key": strat_key,
+                        # 稳健筛选所需的量价上下文（右側/不追高判断）
+                        "ma20": item.get("ma21", price_val),
+                        "ma20_prev": item.get("prev_ma21", price_val),
+                        "pct_60d": pct_60d_val,
                     }
                     item_obj.update(eval_res)
                     strategy_buckets[strat_key].append(item_obj)
@@ -883,6 +962,7 @@ class MorningStockPickerAgent:
                 else:
                     it["analysis"] = generate_analysis_text(code, name, price, snap, strat, max_chars=200)
                 it["feishu_analysis"] = summarize_for_feishu(it.get("analysis", ""), 300)
+                it["_snap"] = snap
         else:
             for it in final_items:
                 it.setdefault("dividend_yield", "暂无")
@@ -890,6 +970,10 @@ class MorningStockPickerAgent:
                 it.setdefault("risk_hint", "分析模块未加载")
                 it.setdefault("analysis", "")
                 it.setdefault("feishu_analysis", "")
+
+        # 🛡️ 稳健型筛选：在「保留原 8 大策略信号」基础上叠加右侧/资金/小盘/不追高护栏
+        if STEADY_MODE and apply_steady_filter and _CNStockDataFetcher:
+            final_items = self._apply_steady_screening(final_items)
 
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
