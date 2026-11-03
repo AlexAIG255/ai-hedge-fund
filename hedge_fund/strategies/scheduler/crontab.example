@@ -1,0 +1,26 @@
+# =====================================================================
+# AI Hedge Fund 定时任务（cron）
+# 安装方式（二选一）：
+#   A. 直接导入：  crontab crontab.example
+#   B. 手动编辑：  crontab -e  然后把下面内容贴进去
+#
+# 说明：
+#   - 把 SCHEDULER 改成你仓库里 scheduler 目录的绝对路径
+#   - 仅在交易日（周一~周五）运行
+#   - 脚本会自动定位仓库根、激活 .venv（若存在）、写 logs/
+#   - 企业微信 / 飞书 推送沿用代码内配置，无需在此设置
+# =====================================================================
+
+SCHEDULER=/path/to/ai-hedge-fund/hedge_fund/strategies/scheduler
+
+# 🌅 早盘选股 09:50
+50 9 * * 1-5  $SCHEDULER/run_job.sh morning
+
+# 🔔 盘中监控（止损/止盈抛售提醒）09:35 / 10:30 / 13:30 / 14:30
+35 9 * * 1-5  $SCHEDULER/run_job.sh intraday
+30 10 * * 1-5 $SCHEDULER/run_job.sh intraday
+30 13 * * 1-5 $SCHEDULER/run_job.sh intraday
+30 14 * * 1-5 $SCHEDULER/run_job.sh intraday
+
+# 🌙 晚间复盘 16:00
+0 16 * * 1-5  $SCHEDULER/run_job.sh evening

@@ -96,3 +96,32 @@ If you have a feature request, please open an [issue](https://github.com/virattt
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
+---
+
+## 中文 A 股选股 / 复盘 自动化（`hedge_fund/strategies`）
+
+仓库内置一套面向 A 股的「早盘选股 + 盘中监控 + 晚间复盘」自动化工具，数据与推送均对接你的飞书多维表格与企业微信。
+
+### 能力
+- **早盘选股**（`morning_picker.py`）：多策略筛选 → 三源行情校验 → 风控测算，并输出每只标的的
+  **多维分析**（财报面 / 估值红利 / 资金面 / 消息面 / 风险提示），LLM 生成，失败自动降级为模板。
+- **盘中监控**（`evening_review.py --mode intraday`）：触碰止损/止盈线即推送 🚨 抛售提醒。
+- **晚间复盘**（`evening_review.py`）：收盘判定止盈/止损/到期平仓，回写飞书，并推送复盘总览与抛售清单。
+- **飞书同步**：`feishu_sync.py`（按真实列名+类型自动对齐）、`feishu_migrate.py`（一键补列）。
+- **分段推送**：企业微信单条超 1800 字自动拆分，避免被风控封锁。
+
+### 定时任务
+见 `hedge_fund/strategies/scheduler/`：早盘 09:50、盘中多时点、晚间 16:00，详见该目录 README。
+
+### 配置（`.env`）
+```
+FEISHU_APP_ID / FEISHU_APP_SECRET / FEISHU_APP_TOKEN / FEISHU_TABLE_ID   # 飞书多维表格
+WECHAT_WEBHOOK                                                            # 企业微信机器人
+HEDGE_FUND_LLM_MODEL + 对应 API_KEY                                        # 多维分析（可选）
+EVENING_ANALYSIS=true                                                      # 晚间也补分析（可选）
+ANALYSIS_MAX_STOCKS=8                                                      # 分析股数上限
+```
+
+> ⚠️ 本工具用于学习研究，不构成任何投资建议。
+

@@ -56,6 +56,16 @@ try:
 except ImportError:
     fetch_tenant_token = fetch_field_map = build_fields = resolve_column = None
 
+# 🔬 引入个股多维分析（财报/股息/资金面/舆情 + LLM 点评，含降级）
+try:
+    from stock_analyzer import (
+        enrich_stock, generate_analysis_text, build_risk_hint,
+        summarize_for_feishu, split_wechat_message,
+    )
+except ImportError:
+    enrich_stock = generate_analysis_text = build_risk_hint = None
+    summarize_for_feishu = split_wechat_message = None
+
 # ⚙️ 飞书多维表格 API 配置
 FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "").strip()
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "").strip()
@@ -479,6 +489,24 @@ class EveningReviewAgent:
         else:
             print("✅ 盘中监控：所有持仓均在安全区间内，无需抛售提醒。")
 
+    def _send_markdown_parts(self, content: str) -> bool:
+        """企业微信分段发送：单条超长自动按 1800 字拆分，避免风控封锁。"""
+        url = WECHAT_WEBHOOK
+        if not url:
+            return False
+        parts = split_wechat_message(content, 1800) if split_wechat_message else [content]
+        ok = True
+        for p in parts:
+            payload = {"msgtype": "markdown", "markdown": {"content": p.replace("```", "")}}
+            try:
+                res = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
+                if res.json().get("errcode") != 0:
+                    ok = False
+            except Exception:
+                ok = False
+            time.sleep(1)
+        return ok
+
     def push_sell_alert(self, alerts: List[Dict]):
         """专门推送 🚨 抛售提醒（企业微信）。"""
         if not WECHAT_WEBHOOK:
@@ -502,15 +530,8 @@ class EveningReviewAgent:
         lines.append("-----------------------------------")
         lines.append("💡 风险提示：抛售提醒仅供参考，请结合自身风险偏好与盘面决策。")
 
-        payload = {"msgtype": "markdown", "markdown": {"content": "\n".join(lines)}}
-        try:
-            res = requests.post(WECHAT_WEBHOOK, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
-            if res.json().get("errcode") == 0:
-                print(f"🚨 盘中抛售提醒已推送（共 {len(alerts)} 只）！")
-            else:
-                print(f"❌ 抛售提醒推送失败: {res.text}")
-        except Exception as e:
-            print(f"❌ 抛售提醒推送异常: {e}")
+        self._send_markdown_parts("\n".join(lines))
+        print(f"🚨 盘中抛售提醒已推送（共 {len(alerts)} 只）！")
 
     def update_skills_postmortem(self, tracker_data: List[Dict]):
         completed = [i for i in tracker_data if i.get("status") in ["WIN", "LOSS"]]
@@ -535,8 +556,19 @@ class EveningReviewAgent:
             return
 
         today_str = time.strftime("%Y-%m-%d")
-        chunk_size = 5
+        chunk_size = 3
         total_chunks = (len(summary_list) + chunk_size - 1) // chunk_size
+
+        # 🔬 可选：晚间复盘也给持仓股补多维分析（需联网+LLM，默认关闭以省资源）
+        do_analysis = os.environ.get("EVENING_ANALYSIS", "false").lower() in ["true", "1", "yes"]
+        if do_analysis and enrich_stock and generate_analysis_text:
+            print("🔬 晚间复盘补充持仓股多维分析...")
+            for s in summary_list:
+                try:
+                    snap = enrich_stock(str(s["code"]).zfill(6), s["name"], float(s["curr_price"]))
+                    s["analysis"] = generate_analysis_text(s["code"], s["name"], float(s["curr_price"]), snap, s["strategy"], max_chars=220)
+                except Exception:
+                    s["analysis"] = ""
 
         still_active = [s for s in summary_list if s["is_active"]]
         strong_stocks = [s for s in still_active if s["ret_pct"] >= 0]
@@ -565,24 +597,24 @@ class EveningReviewAgent:
 
                 line = (
                     f"{icon} **{s['name']}** (`{s['code']}`){notice}\n"
-                    f"• 策略桶: **{s['strategy']}** | 评级: **{s['strength']}**\n"
+                    f"• 策略: **{s['strategy']}** | 评级: **{s['strength']}**\n"
                     f"• 最新价: `{s['curr_price']:.2f}元` | 收益: `{s['ret_str']}`\n"
                     f"• 状态: **{s['status']}** | 持仓: `{s['days']}天`\n"
                     f"• 止盈 `{s['target_price']:.2f}` / 有效止损 `{s['effective_stop']:.2f}`\n"
-                    f"• 归因: {s['reason']}\n"
                 )
+                if s.get("analysis"):
+                    line += f"• 📊 多维分析: {s['analysis']}\n"
+                else:
+                    line += f"• 归因: {s['reason']}\n"
                 lines.append(line)
 
             lines.append("-----------------------------------")
 
             if page == total_chunks:
-                # 🚨 抛售提醒清单（重点）
                 if closed_today:
                     lines.append("🚨 **【今日抛售提醒清单】**")
                     for s in closed_today:
-                        lines.append(
-                            f"• `{s['code']}` {s['name']} — **{s['status']}** | {s['reason']}"
-                        )
+                        lines.append(f"• `{s['code']}` {s['name']} — **{s['status']}** | {s['reason']}")
                     lines.append("")
 
                 lines.append("📊 **【持仓强弱筛选与成功率统计】**\n")
@@ -600,19 +632,8 @@ class EveningReviewAgent:
                 lines.append("\n💡 *数据已精准同步回填至飞书多维表格*")
 
             full_msg = "\n".join(lines)
-            payload = {
-                "msgtype": "markdown",
-                "markdown": {"content": full_msg},
-            }
-
-            try:
-                res = requests.post(WECHAT_WEBHOOK, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
-                if res.json().get("errcode") == 0:
-                    print(f"🎉 晚间复盘报告 [{page}/{total_chunks}] 已成功推送！")
-            except Exception as e:
-                print(f"❌ 企微推送异常: {e}")
-
-            time.sleep(1)
+            if self._send_markdown_parts(full_msg):
+                print(f"🎉 晚间复盘报告 [{page}/{total_chunks}] 已成功推送！")
 
 
 if __name__ == "__main__":

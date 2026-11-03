@@ -52,6 +52,16 @@ try:
 except ImportError:
     fetch_tenant_token = fetch_field_map = build_fields = None
 
+# 🔬 引入个股多维分析（财报/股息/资金面/舆情 + LLM 点评，含降级）
+try:
+    from stock_analyzer import (
+        enrich_stock, generate_analysis_text, build_risk_hint,
+        summarize_for_feishu, split_wechat_message,
+    )
+except ImportError:
+    enrich_stock = generate_analysis_text = build_risk_hint = None
+    summarize_for_feishu = split_wechat_message = None
+
 # 🔒 Dify Chatflow 对话接口配置
 DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
 DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "").strip()
@@ -486,6 +496,10 @@ class MorningStockPickerAgent:
                 "stop_loss": sl,
                 "target_price": tp,
                 "obs_days": obs,
+                "dividend": item.get("dividend_yield", "暂无"),
+                "capital": item.get("capital_flow", "暂无"),
+                "risk": item.get("risk_hint", ""),
+                "analysis": item.get("feishu_analysis", ""),
                 "attribution": f"建议建仓:{item.get('entry_range')} | 止损:{sl}元/止盈:{tp}元 | 观察期:{obs}天",
             }
             records.append({"fields": build_fields(raw, field_map)})
@@ -851,25 +865,54 @@ class MorningStockPickerAgent:
             print("⚠️ 过滤去重后，今日无新推荐标的。")
             return [], [], ""
 
+        # 🔬 多维数据富集 + 文字分析（财报/股息/资金面/舆情 + LLM 点评，带降级）
+        if enrich_stock and generate_analysis_text:
+            analysis_limit = int(os.environ.get("ANALYSIS_MAX_STOCKS", "8"))
+            print(f"🔬 开始为 {len(final_items)} 只标的补充财报/股息/资金面/舆情分析...")
+            for idx, it in enumerate(final_items):
+                code = str(it.get("code", "")).strip()
+                name = str(it.get("name", ""))
+                strat = strategy_name(it.get("strategy_key", it.get("strategy", "")))
+                price = float(str(it.get("price", "0")).replace("元", "")) or 0.0
+                snap = enrich_stock(code, name, price)
+                it["dividend_yield"] = snap.get("dividend_yield", "暂无")
+                it["capital_flow"] = snap.get("capital_flow", "暂无")
+                it["risk_hint"] = build_risk_hint(snap, strat)
+                if idx < analysis_limit:
+                    it["analysis"] = generate_analysis_text(code, name, price, snap, strat)
+                else:
+                    it["analysis"] = generate_analysis_text(code, name, price, snap, strat, max_chars=200)
+                it["feishu_analysis"] = summarize_for_feishu(it.get("analysis", ""), 300)
+        else:
+            for it in final_items:
+                it.setdefault("dividend_yield", "暂无")
+                it.setdefault("capital_flow", "暂无")
+                it.setdefault("risk_hint", "分析模块未加载")
+                it.setdefault("analysis", "")
+                it.setdefault("feishu_analysis", "")
+
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
         self.sync_to_feishu(final_items)
 
-        # 📱 构造最终推送消息（加入建议建仓价与建仓区间）
+        # 📱 构造最终推送消息（加入建议建仓价、风控、股息率、资金面、风险、多维分析）
         message_chunks = []
         for i in final_items:
+            strat = strategy_name(i.get("strategy_key", i.get("strategy", "")))
             chunk = (
                 f"🎯 **【精选个股研报】** **{i['name']}** (`{i['code']}`)\n"
                 f"-----------------------------------\n"
-                f"📌 **匹配策略桶**: {i['strategy']}\n"
-                f"💰 **最新校验价**: `{i['price']}元` ({i['pct']})\n"
+                f"📌 **匹配策略**: {strat}\n"
+                f"💰 **最新校验价**: `{i['price']}元` ({i.get('pct', '')})\n"
                 f"💵 **建议建仓价**: `{i['suggested_entry']}元` (建仓区间: `{i['entry_range']}`)\n"
-                f"🧠 **TrendIQ 综合评分**: **{i['trend_iq']} 分** | 风控: {i['risk_display']}\n"
+                f"🧠 **TrendIQ 综合评分**: **{i['trend_iq']} 分** | 风控: {i.get('risk_display', '')}\n"
                 f"🛡️ **建议仓位**: `{i.get('suggested_pos', '10.0%')}` | 盈亏比: `{i.get('rr_ratio', '2.0')}`\n"
                 f"🛑 **动态风控**: 止损 `{i['stop_loss']}元` | 止盈目标 `{i['target_price']}元`\n"
-                f"⏳ **持续观察期**: `{get_observation_days(strategy_name(i.get('strategy_key','')))}天`（到点强平）\n"
+                f"⏳ **持续观察期**: `{get_observation_days(strat)}天`（到点强平）\n"
+                f"💡 **股息率**: {i.get('dividend_yield', '暂无')} | **主力净流入**: {i.get('capital_flow', '暂无')}\n"
+                f"⚠️ **风险提示**: {i.get('risk_hint', '-')}\n"
                 f"-----------------------------------\n"
-                f"{i['trend_iq_analysis']}"
+                f"📊 **多维分析（财报/盘面/资金面/消息面）**:\n{i.get('analysis', i.get('trend_iq_analysis', ''))}"
             )
             message_chunks.append(chunk)
 
@@ -884,11 +927,20 @@ class MorningStockPickerAgent:
         if not wechat_url or not wechat_url.startswith("http"):
             return False
 
+        # 预拆分：单条超长自动再分段，避免企业微信单条过长被风控封锁
+        if split_wechat_message:
+            flat = []
+            for c in message_chunks:
+                flat.extend(split_wechat_message(c, max_len=1800))
+        else:
+            flat = message_chunks
+
         success_all = True
-        for chunk in message_chunks:
+        total = len(flat)
+        for idx, part in enumerate(flat, 1):
             payload = {
                 "msgtype": "markdown",
-                "markdown": {"content": chunk.replace("```", "")},
+                "markdown": {"content": part.replace("```", "")},
             }
             try:
                 res = requests.post(
@@ -898,10 +950,13 @@ class MorningStockPickerAgent:
                     timeout=10,
                 )
                 if res.json().get("errcode") != 0:
+                    print(f"⚠️ 企业微信推送分段 {idx}/{total} 返回异常: {res.text}")
                     success_all = False
-            except Exception:
+            except Exception as e:
+                print(f"⚠️ 企业微信推送分段 {idx}/{total} 异常: {e}")
                 success_all = False
-            time.sleep(1)
+            time.sleep(1)  # 节流，避免触发频率限制
+        print(f"📨 企业微信早盘研报分 {total} 段推送完成。")
         return success_all
 
 

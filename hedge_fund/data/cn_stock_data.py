@@ -86,3 +86,67 @@ class CNStockDataFetcher:
             })
 
         return news_list[:limit]
+
+    def fetch_dividend_yield(self, symbol: str) -> str:
+        """抓取股息率(TTM)，用于红利/防守属性判断。"""
+        clean_code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
+        # 东方财富个股估值接口（股息率TTM 字段 DIVIDEND_YIELD_TTM）
+        url = (
+            "https://datacenter-web.eastmoney.com/api/data/v1/get"
+            f"?reportName=RPT_VALUEANALYSIS_DET&columns=SECURITY_CODE,DIVIDEND_YIELD_TTM"
+            f"&filter=(SECURITY_CODE%3A%22{clean_code}%22)"
+        )
+        try:
+            res = requests.get(url, headers=self.headers, timeout=5)
+            if res.status_code == 200:
+                data = res.json().get("result", {}).get("data", [])
+                if data and isinstance(data, list):
+                    val = data[0].get("DIVIDEND_YIELD_TTM")
+                    if val is not None:
+                        return f"{float(val):.2f}%"
+        except Exception as e:
+            print(f"⚠️ 读取 {clean_code} 股息率异常: {e}")
+        return "暂无"
+
+    def fetch_capital_flow(self, symbol: str) -> str:
+        """抓取当日主力净流入(元)，用于资金面强弱判断。"""
+        clean_code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
+        sec_id = f"1.{clean_code}" if clean_code.startswith("60") else f"0.{clean_code}"
+        # 东方财富个股资金流日K线（f52=主力净流入 单位：元）
+        url = (
+            "https://push2.eastmoney.com/api/qt/stock/fflow/daykline/get"
+            f"?lmt=1&klt=101&secid={sec_id}"
+            "&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61"
+        )
+        try:
+            res = requests.get(url, headers=self.headers, timeout=5)
+            if res.status_code == 200:
+                klines = res.json().get("data", {}).get("klines", [])
+                if klines:
+                    parts = klines[0].split(",")
+                    if len(parts) > 2:
+                        net = float(parts[1])  # 主力净流入（元）
+                        if abs(net) >= 1e8:
+                            return f"{net / 1e8:.2f}亿"
+                        elif abs(net) >= 1e4:
+                            return f"{net / 1e4:.1f}万"
+                        return f"{net:.0f}元"
+        except Exception as e:
+            print(f"⚠️ 读取 {clean_code} 资金流异常: {e}")
+        return "暂无"
+
+    def fetch_full_snapshot(self, symbol: str, name: str, news_limit: int = 3) -> Dict[str, object]:
+        """一次性拉取某只标的的【财报 + 股息 + 资金面 + 舆情】，供多维分析使用。"""
+        clean_code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
+        financials = self.fetch_stock_financials(symbol)
+        dividend = self.fetch_dividend_yield(symbol)
+        capital = self.fetch_capital_flow(symbol)
+        news = self.fetch_today_stock_news(symbol, name, limit=news_limit)
+        return {
+            "code": clean_code,
+            "name": name,
+            "financials": financials,           # 市盈率/市净率/ROE/营收同比/净利同比
+            "dividend_yield": dividend,        # 股息率(TTM)
+            "capital_flow": capital,           # 主力净流入
+            "news": news,                      # 当日舆情
+        }
