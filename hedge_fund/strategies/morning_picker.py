@@ -46,6 +46,12 @@ except ImportError:
     def compute_take_profit(e, s): return round(e * 1.08, 2)
     def get_observation_days(s): return 45
 
+# 🔧 引入飞书字段适配层（按真实列名 + 字段类型自动对齐，缺列自动跳过）
+try:
+    from feishu_sync import fetch_tenant_token, fetch_field_map, build_fields
+except ImportError:
+    fetch_tenant_token = fetch_field_map = build_fields = None
+
 # 🔒 Dify Chatflow 对话接口配置
 DIFY_API_URL = "https://api.dify.ai/v1/chat-messages"
 DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "").strip()
@@ -435,26 +441,20 @@ class MorningStockPickerAgent:
         if not (FEISHU_APP_ID and FEISHU_APP_SECRET and FEISHU_APP_TOKEN and FEISHU_TABLE_ID):
             print("⚠️ 未配置完整飞书环境变量，跳过飞书同步。")
             return
+        if not (fetch_tenant_token and fetch_field_map and build_fields):
+            print("⚠️ feishu_sync 适配层缺失，跳过飞书同步。")
+            return
 
-        auth_url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
         try:
-            res_auth = requests.post(
-                auth_url,
-                json={"app_id": FEISHU_APP_ID, "app_secret": FEISHU_APP_SECRET},
-                timeout=10,
-            )
-            auth_data = res_auth.json()
-            access_token = auth_data.get("tenant_access_token", "")
-            if not access_token:
-                print(f"❌ 飞书鉴权失败，返回值: {res_auth.text}")
-                return
+            tenant_token = fetch_tenant_token(FEISHU_APP_ID, FEISHU_APP_SECRET)
+            field_map = fetch_field_map(FEISHU_APP_TOKEN, FEISHU_TABLE_ID, tenant_token)
         except Exception as e:
-            print(f"❌ 飞书鉴权网络请求异常: {e}")
+            print(f"❌ 飞书鉴权/读取字段失败: {e}")
             return
 
         headers = {
             "Content-Type": "application/json; charset=utf-8",
-            "Authorization": f"Bearer {access_token}",
+            "Authorization": f"Bearer {tenant_token}",
         }
 
         today_dt = datetime.now()
@@ -466,24 +466,29 @@ class MorningStockPickerAgent:
             strat = strategy_name(item.get("strategy_key", item.get("strategy", "")))
             realtime_price = float(str(item.get("price", "0")).replace("元", ""))
             entry_price = float(str(item.get("suggested_entry", realtime_price)).replace("元", ""))
-            records.append(
-                {
-                    "fields": {
-                        "推荐日期": today_timestamp,
-                        "复盘日期": today_timestamp,
-                        "股票代码": stock_code,
-                        "股票名称": str(item.get("name", "")),
-                        "策略桶": strat,
-                        "建仓价格": entry_price,
-                        "最新收盘价": realtime_price,
-                        "持仓收益率": "0.00%",
-                        "持股天数": 0,
-                        "状态": "持仓中",
-                        "TrendIQ评分": int(item.get("trend_iq", 75)),
-                        "胜负归因": f"建议建仓:{item.get('entry_range')} | 止损:{item.get('stop_loss')}元/止盈:{item.get('target_price')}元 | 观察期:{get_observation_days(strat)}天",
-                    }
-                }
-            )
+            # 由 strategy_config 统一计算风控价（与晚间复盘口径一致）
+            sl = compute_stop_loss(entry_price, strat)
+            tp = compute_take_profit(entry_price, strat)
+            obs = get_observation_days(strat)
+            # 语义 -> 真实列名 由 feishu_sync 自动解析（策略归属/建仓价格/止损价…）
+            raw = {
+                "recommend_date": today_timestamp,
+                "review_date": today_timestamp,
+                "stock_code": stock_code,
+                "stock_name": str(item.get("name", "")),
+                "strategy": strat,
+                "entry_price": entry_price,
+                "close_price": realtime_price,
+                "profit_pct": "0.00%",
+                "hold_days": 0,
+                "status": "持仓中",
+                "trendiq": int(item.get("trend_iq", 75)),
+                "stop_loss": sl,
+                "target_price": tp,
+                "obs_days": obs,
+                "attribution": f"建议建仓:{item.get('entry_range')} | 止损:{sl}元/止盈:{tp}元 | 观察期:{obs}天",
+            }
+            records.append({"fields": build_fields(raw, field_map)})
 
         if records:
             batch_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records/batch_create"

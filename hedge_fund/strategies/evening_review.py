@@ -48,6 +48,14 @@ except ImportError:
         if c.startswith(("60", "688")): return f"sh{c}"
         return f"sz{c}"
 
+# 🔧 引入飞书字段适配层（按真实列名 + 字段类型自动对齐，缺列自动跳过）
+try:
+    from feishu_sync import (
+        fetch_tenant_token, fetch_field_map, build_fields, resolve_column,
+    )
+except ImportError:
+    fetch_tenant_token = fetch_field_map = build_fields = resolve_column = None
+
 # ⚙️ 飞书多维表格 API 配置
 FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "").strip()
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "").strip()
@@ -113,6 +121,11 @@ class EveningReviewAgent:
             "Authorization": f"Bearer {access_token}",
         }
 
+        # 🔧 拉取真实字段结构，用于按真实列名（策略归属 / 建仓价格 …）读取
+        self.feishu_field_map = fetch_field_map(FEISHU_APP_TOKEN, FEISHU_TABLE_ID, access_token) if fetch_field_map else {}
+        strategy_col = resolve_column("strategy", self.feishu_field_map) or "策略归属"
+        entry_col = resolve_column("entry_price", self.feishu_field_map) or "建仓价格"
+
         record_map = {}
         feishu_active_stocks = []
         list_url = f"https://open.feishu.cn/open-apis/bitable/v1/apps/{FEISHU_APP_TOKEN}/tables/{FEISHU_TABLE_ID}/records"
@@ -153,9 +166,9 @@ class EveningReviewAgent:
 
                     status = str(fields.get("状态", "持仓中")).strip()
                     name = fields.get("股票名称") or fields.get("名称") or f"标的_{code}"
-                    entry_price = float(fields.get("买入价格") or fields.get("建仓价") or fields.get("最新校验价") or 0.0)
+                    entry_price = float(fields.get(entry_col) or 0.0)
 
-                    strategy = strategy_name(fields.get("策略桶") or fields.get("匹配策略桶") or "综合选股")
+                    strategy = strategy_name(fields.get(strategy_col) or "综合选股")
 
                     # 🔧 止盈/止损比例统一走 config（原版：三倍量 0.96/1.10，其余 0.95/1.08）
                     default_target = compute_take_profit(entry_price, strategy)
@@ -358,18 +371,21 @@ class EveningReviewAgent:
                     "Content-Type": "application/json; charset=utf-8",
                     "Authorization": f"Bearer {access_token}",
                 }
-                payload_fs = {
-                    "fields": {
-                        "复盘日期": today_timestamp,
-                        "最新收盘价": curr_price,
-                        "持仓收益率": ret_str,
-                        "持股天数": days,
-                        "状态": status,
-                        "策略桶": strategy,
-                        "有效止损价": effective_stop,
-                        "胜负归因": f"[{strength}] {item['reason']}",
-                    }
+                # 🔧 用适配层按真实列名写入（自动跳过表格不存在的列）
+                fm = getattr(self, "feishu_field_map", None) or {}
+                if not fm and fetch_field_map and access_token:
+                    fm = self.feishu_field_map = fetch_field_map(FEISHU_APP_TOKEN, FEISHU_TABLE_ID, access_token)
+                raw_fields = {
+                    "review_date": today_timestamp,
+                    "close_price": curr_price,
+                    "profit_pct": ret_str,
+                    "hold_days": days,
+                    "status": status,
+                    "strategy": strategy,
+                    "eff_stop": effective_stop,
+                    "attribution": f"[{strength}] {item['reason']}",
                 }
+                payload_fs = {"fields": build_fields(raw_fields, fm)}
                 try:
                     res_patch = requests.patch(update_url, headers=headers_fs, json=payload_fs, timeout=5)
                     if res_patch.status_code == 200:
