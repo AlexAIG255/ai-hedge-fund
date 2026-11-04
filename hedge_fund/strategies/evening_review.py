@@ -79,6 +79,20 @@ try:
 except ImportError:
     ExperienceMemory = None
 
+# 🏛️ 引入多 Agent 议会（看多/看空/大市/风控 交锋，风控终裁中肯结论）
+try:
+    from agent_council import run_council as _council_run, council_compact
+except ImportError:
+    try:
+        from hedge_fund.strategies.agent_council import (
+            run_council as _council_run, council_compact)
+    except ImportError:
+        _council_run = None
+        council_compact = None
+
+# 🏛️ 晚间议会开关（默认开启；关闭则逐只持仓不附议会结论，省 LLM）
+EVENING_COUNCIL = os.environ.get("EVENING_COUNCIL", "true").lower() in ("true", "1", "yes")
+
 # ⚙️ 飞书多维表格 API 配置
 FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "").strip()
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "").strip()
@@ -647,6 +661,18 @@ class EveningReviewAgent:
                     line += f"• 📊 多维分析: {s['analysis']}\n"
                 else:
                     line += f"• 归因: {s['reason']}\n"
+                # 🏛️ 多 Agent 议会中肯结论（看多/看空/大市/风控 交锋，风控终裁）
+                if EVENING_COUNCIL and _council_run and council_compact:
+                    try:
+                        _cp = float(s.get("curr_price") or 0)
+                        _ep = float(s.get("entry_price") or 0)
+                        _ret = float(s.get("ret_pct") or 0)
+                        _holding = {"cost_price": _ep, "pnl_pct": _ret} if _ep > 0 else None
+                        _rep = _council_run(str(s["code"]).zfill(6), s["name"], _cp,
+                                           s.get("strategy", "综合选股"), _holding)
+                        line += council_compact(_rep) + "\n"
+                    except Exception as e:
+                        print(f"⚠️ 议会分析 {s.get('code')} 失败，跳过: {e}")
                 lines.append(line)
 
             lines.append("-----------------------------------")

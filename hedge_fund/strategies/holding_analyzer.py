@@ -209,6 +209,31 @@ def _dify_chat(system: str, user: str, max_tokens: int) -> str:
     return r.json().get("answer", "")
 
 
+def llm_complete(system: str, user: str, max_tokens: int = ANALYSIS_LLM_MAX_TOKENS,
+                 timeout: int = None) -> str:
+    """统一 LLM 文本调用入口（供 agent_council 等复用）。
+
+    降级顺序：Dify（若启用）→ OpenAI 兼容免费后端（VISION_BACKEND 切换） → make_llm。
+    全部失败则抛 RuntimeError，由调用方自行降级到模板，保证主流程不中断。
+    """
+    timeout = _LLM_TIMEOUT if timeout is None else timeout
+    if DIFY_ENABLED:
+        try:
+            return _dify_chat(system, user, max_tokens)
+        except Exception as e:
+            print(f"⚠️ Dify 调用失败，降级免费后端: {e}")
+    try:
+        return _openai_chat(system, user, max_tokens, timeout)
+    except Exception as e1:
+        if make_llm is not None:
+            try:
+                llm = make_llm(timeout=timeout, max_tokens=max_tokens)
+                return llm.complete(system, user)
+            except Exception as e2:
+                raise RuntimeError(f"LLM 全部后端不可用（免费后端:{e1}; make_llm:{e2}）")
+        raise RuntimeError(f"LLM 后端不可用（免费后端:{e1}）")
+
+
 def vision_ocr_image(image_bytes: bytes, mime: str = "image/jpeg", timeout: int = 60) -> List[Dict]:
     """调用多模态大模型，从持仓截图识别每只持仓股。返回持仓字典列表。"""
     key, base, model = _resolve_backend()

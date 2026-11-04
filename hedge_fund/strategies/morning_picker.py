@@ -73,6 +73,17 @@ except ImportError:
     enrich_stock = generate_analysis_text = build_risk_hint = None
     summarize_for_feishu = split_wechat_message = None
 
+# 🏛️ 引入多 Agent 议会（看多/看空/大市/风控 交锋，风控终裁中肯报告）
+try:
+    from agent_council import run_council as _council_run, COUNCIL_ENABLED as _COUNCIL_ENABLED
+except ImportError:
+    try:
+        from hedge_fund.strategies.agent_council import (
+            run_council as _council_run, COUNCIL_ENABLED as _COUNCIL_ENABLED)
+    except ImportError:
+        _council_run = None
+        _COUNCIL_ENABLED = False
+
 # 🛡️ 稳健模式需用到资金流 / 流通市值 实接口
 try:
     from data.cn_stock_data import CNStockDataFetcher as _CNStockDataFetcher
@@ -988,7 +999,8 @@ class MorningStockPickerAgent:
 
         # 📱 构造最终推送消息（加入建议建仓价、风控、股息率、资金面、风险、多维分析）
         message_chunks = []
-        for i in final_items:
+        council_limit = int(os.environ.get("COUNCIL_MAX_STOCKS", "5"))
+        for idx, i in enumerate(final_items):
             strat = strategy_name(i.get("strategy_key", i.get("strategy", "")))
             chunk = (
                 f"🎯 **【精选个股研报】** **{i['name']}** (`{i['code']}`)\n"
@@ -1005,6 +1017,14 @@ class MorningStockPickerAgent:
                 f"-----------------------------------\n"
                 f"📊 **多维分析（财报/盘面/资金面/消息面）**:\n{i.get('analysis', i.get('trend_iq_analysis', ''))}"
             )
+            # 🏛️ 多 Agent 议会中肯报告（仅 top N 候选，避免过长/过耗；失败降级跳过）
+            if _COUNCIL_ENABLED and _council_run and idx < council_limit and i.get("_snap") is not None:
+                try:
+                    price_f = float(str(i.get("price", "0")).replace("元", "")) or 0.0
+                    rep = _council_run(str(i["code"]), str(i["name"]), price_f, strat, None, i.get("_snap"))
+                    chunk += f"\n\n{rep['report_md']}"
+                except Exception as e:
+                    print(f"⚠️ 议会分析 {i.get('code')} 失败，跳过: {e}")
             message_chunks.append(chunk)
 
         full_md = "\n\n---\n\n".join(message_chunks)
