@@ -29,6 +29,13 @@ import requests
 # 📁 确保 strategy_config.py（与 evening_review.py 同目录）无论在哪运行都能被找到
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 📝 自动加载 .env（cron/手动运行都需；否则 WECHAT_WEBHOOK 等为空导致静默不推送）
+try:
+    from _env import load_env
+except ImportError:
+    from hedge_fund.strategies._env import load_env
+load_env()
+
 # 🔧 引入集中配置
 try:
     from strategy_config import (

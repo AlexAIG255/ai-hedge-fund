@@ -32,6 +32,13 @@ except ImportError:
 # 📁 确保 strategy_config.py（与本文件同目录）无论在哪运行都能被找到
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 📝 自动加载 .env（cron/手动运行都需；否则 WECHAT_WEBHOOK 等为空导致静默不推送）
+try:
+    from _env import load_env
+except ImportError:
+    from hedge_fund.strategies._env import load_env
+load_env()
+
 # 🔧 引入集中配置（观察周期 / 止盈止损 / 追踪止损 / 稳健模式）
 try:
     from strategy_config import (
@@ -1009,6 +1016,7 @@ class MorningStockPickerAgent:
     def push_to_wechat_work(self, message_chunks: List[str]) -> bool:
         wechat_url = os.environ.get("WECHAT_WEBHOOK", "").strip()
         if not wechat_url or not wechat_url.startswith("http"):
+            print("⚠️ 未配置 WECHAT_WEBHOOK（或 .env 未加载），跳过企业微信推送。请确认 .env 中存在有效 webhook。")
             return False
 
         # 预拆分：单条超长自动再分段，避免企业微信单条过长被风控封锁

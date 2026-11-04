@@ -27,6 +27,13 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 📝 自动加载 .env（cron/手动运行都需；否则 WECHAT_WEBHOOK 等为空导致静默不推送）
+try:
+    from _env import load_env
+except ImportError:
+    from hedge_fund.strategies._env import load_env
+load_env()
+
 # 🔧 异动阈值（统一在 strategy_config 调参）
 try:
     from strategy_config import to_market_code, get_anomaly_thresholds

@@ -40,6 +40,13 @@ import requests
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+# 📝 自动加载 .env（cron/手动运行都需；否则企微凭证/WECHAT_WEBHOOK 等为空）
+try:
+    from _env import load_env
+except ImportError:
+    from hedge_fund.strategies._env import load_env
+load_env()
+
 # 视觉/分析模块
 import holding_analyzer as ha
 
