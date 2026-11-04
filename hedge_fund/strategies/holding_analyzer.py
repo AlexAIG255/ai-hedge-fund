@@ -92,11 +92,70 @@ DIFY_USER = os.environ.get("DIFY_USER", "hedge-fund-bot")
 # ==========================================================
 # 1. 视觉 OCR：从持仓截图识别 代码 / 数量 / 价格
 # ==========================================================
-def _vision_config():
-    key = os.environ.get("VISION_API_KEY") or os.environ.get("OPENAI_API_KEY") or ""
-    base = os.environ.get("VISION_API_BASE") or "https://api.openai.com/v1"
-    model = os.environ.get("VISION_MODEL") or "gpt-4o"
+# 🔌 视觉/分析 后端（全部 OpenAI 兼容 /chat/completions，可一键切换免费额度）
+#   openai      → 付费/token，质量最高（默认 gpt-4o）
+#   siliconflow → 硅基流动，国内友好，注册送免费额度（默认 GLM-4V-9B，智谱·非千问）
+#   openrouter  → 全球，有真·免费视觉模型（默认 google/gemini-2.0-flash-001）
+#   github      → GitHub Models，免费限流（默认 gpt-4o）
+#   ollama      → 本地 Mac mini 部署后免费（默认 minicpm-v:8b，不耗 token）
+VISION_BACKEND = os.environ.get("VISION_BACKEND", "openai").lower()
+_BACKEND_PRESETS = {
+    "openai":      ("https://api.openai.com/v1", "gpt-4o"),
+    "siliconflow": ("https://api.siliconflow.cn/v1", "THUDM/glm-4v-9b"),
+    "openrouter":  ("https://openrouter.ai/api/v1", "google/gemini-2.0-flash-001"),
+    "github":      ("https://models.inference.ai.azure.com", "gpt-4o"),
+    "ollama":      ("http://127.0.0.1:11434/v1", "minicpm-v:8b"),
+}
+# 各后端对应的 API Key 环境变量（ollama 本地免 key）
+_BACKEND_KEY_ENV = {
+    "openai": "OPENAI_API_KEY",
+    "siliconflow": "SILICONFLOW_API_KEY",
+    "openrouter": "OPENROUTER_API_KEY",
+    "github": "GITHUB_TOKEN",
+    "ollama": None,
+}
+
+
+def _resolve_backend():
+    """按 VISION_BACKEND 解析 (api_key, base_url, model)。
+    允许 VISION_API_KEY / VISION_API_BASE / VISION_MODEL 显式覆盖（兼容旧手动配置）。
+    注意：实时读 os.environ，以支持运行时切换后端（不依赖导入时的缓存值）。"""
+    backend = os.environ.get("VISION_BACKEND", "openai").lower()
+    preset_base, preset_model = _BACKEND_PRESETS.get(backend, _BACKEND_PRESETS["openai"])
+    base = os.environ.get("VISION_API_BASE") or preset_base
+    model = os.environ.get("VISION_MODEL") or preset_model
+    key_env = _BACKEND_KEY_ENV.get(backend)
+    key = (os.environ.get("VISION_API_KEY")
+           or (os.environ.get(key_env) if key_env else "")
+           or os.environ.get("OPENAI_API_KEY", ""))
+    if backend == "ollama" and not key:
+        key = "sk-no-key-needed"  # 本地 Ollama 不校验 key
     return key, base, model
+
+
+def _openai_chat(system: str, user: str, max_tokens: int, timeout: int = 60) -> str:
+    """调用 OpenAI 兼容的文本对话接口（持仓文本分析用，与视觉 OCR 共用后端）。"""
+    key, base, model = _resolve_backend()
+    if not key:
+        raise RuntimeError(
+            f"未配置 {VISION_BACKEND} 后端 API Key（请设置对应 Key，或 VISION_API_KEY / OPENAI_API_KEY）。"
+        )
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ],
+        "max_tokens": max_tokens,
+        "temperature": 0,
+    }
+    r = requests.post(
+        f"{base}/chat/completions",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json=payload, timeout=timeout,
+    )
+    r.raise_for_status()
+    return r.json()["choices"][0]["message"]["content"]
 
 
 def _resize_image(image_bytes: bytes, max_side: int = VISION_MAX_IMAGE_SIDE) -> bytes:
@@ -145,9 +204,11 @@ def _dify_chat(system: str, user: str, max_tokens: int) -> str:
 
 def vision_ocr_image(image_bytes: bytes, mime: str = "image/jpeg", timeout: int = 60) -> List[Dict]:
     """调用多模态大模型，从持仓截图识别每只持仓股。返回持仓字典列表。"""
-    key, base, model = _vision_config()
+    key, base, model = _resolve_backend()
     if not key:
-        raise RuntimeError("未配置 VISION_API_KEY / OPENAI_API_KEY，无法做截图 OCR。")
+        raise RuntimeError(
+            f"未配置 {VISION_BACKEND} 后端 API Key（请设置对应 Key，或 VISION_API_KEY / OPENAI_API_KEY），无法做截图 OCR。"
+        )
 
     # 🪶 压缩截图尺寸 → 省视觉 token
     image_bytes = _resize_image(image_bytes, VISION_MAX_IMAGE_SIDE)
@@ -363,30 +424,39 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
             decision = _assemble_decision(parsed, cost, cur)
         except Exception as e:
             print(f"⚠️ Dify 分析 {name}({code}) 失败，降级模板: {e}")
-    elif make_llm is not None:
+    else:
+        # 优先 OpenAI 兼容后端（免费额度/SiliconFlow/OpenRouter/GitHub/Ollama 均可），
+        # 无 key 时优雅降级到 make_llm（Anthropic/DeepSeek 等），再不行降级模板。
+        system = (
+            "你是A股资深投顾。基于持仓与多维资料，输出严格JSON（不要多余文字），字段：\n"
+            "action(持有/加仓/减仓/做T/观望/止损)、t_buy(做T低吸买点,元)、"
+            "t_sell(做T高抛卖点,元)、stop_loss(止损价,元)、take_profit(止盈价,元)、"
+            "attribution(盈亏原因归因,1-2句，结合财报/资金/消息/大盘)、comment(一句话操作点评)。"
+            "做T区间应围绕成本价与现价给出可操作的低吸高抛价位。"
+        )
+        news = snap.get("news", []) or []
+        news_str = "；".join(n.get("title", "") for n in news[:3]) or "暂无重大舆情"
+        fin = snap.get("financials", {}) or {}
+        user = (
+            f"持仓：{name}({code}) 成本价{cost}元 现价{cur}元 数量{qty}股 盈亏{pnl_pct:+.2f}%\n"
+            f"财报：{fin} 股息率：{snap.get('dividend_yield')} 主力净流入：{snap.get('capital_flow')}\n"
+            f"舆情：{news_str}\n"
+            f"{lessons_ctx}"
+        )
         try:
-            llm = make_llm(timeout=_LLM_TIMEOUT, max_tokens=ANALYSIS_LLM_MAX_TOKENS)
-            system = (
-                "你是A股资深投顾。基于持仓与多维资料，输出严格JSON（不要多余文字），字段：\n"
-                "action(持有/加仓/减仓/做T/观望/止损)、t_buy(做T低吸买点,元)、"
-                "t_sell(做T高抛卖点,元)、stop_loss(止损价,元)、take_profit(止盈价,元)、"
-                "attribution(盈亏原因归因,1-2句，结合财报/资金/消息/大盘)、comment(一句话操作点评)。"
-                "做T区间应围绕成本价与现价给出可操作的低吸高抛价位。"
-            )
-            news = snap.get("news", []) or []
-            news_str = "；".join(n.get("title", "") for n in news[:3]) or "暂无重大舆情"
-            fin = snap.get("financials", {}) or {}
-            user = (
-                f"持仓：{name}({code}) 成本价{cost}元 现价{cur}元 数量{qty}股 盈亏{pnl_pct:+.2f}%\n"
-                f"财报：{fin} 股息率：{snap.get('dividend_yield')} 主力净流入：{snap.get('capital_flow')}\n"
-                f"舆情：{news_str}\n"
-                f"{lessons_ctx}"
-            )
-            out = llm.complete(system, user).strip().replace("```", "").strip()
+            out = _openai_chat(system, user, ANALYSIS_LLM_MAX_TOKENS).strip().replace("```", "").strip()
             parsed = extract_json(out) if extract_json else json.loads(out)
             decision = _assemble_decision(parsed, cost, cur)
-        except Exception as e:
-            print(f"⚠️ LLM 分析 {name}({code}) 失败，降级模板: {e}")
+        except Exception as e1:
+            print(f"⚠️ OpenAI兼容后端分析 {name}({code}) 失败: {e1}")
+            if make_llm is not None:
+                try:
+                    llm = make_llm(timeout=_LLM_TIMEOUT, max_tokens=ANALYSIS_LLM_MAX_TOKENS)
+                    out = llm.complete(system, user).strip().replace("```", "").strip()
+                    parsed = extract_json(out) if extract_json else json.loads(out)
+                    decision = _assemble_decision(parsed, cost, cur)
+                except Exception as e2:
+                    print(f"⚠️ make_llm 分析 {name}({code}) 也失败，降级模板: {e2}")
 
     if decision is None:
         decision = _template_decision(code, name, cost, cur, snap)
