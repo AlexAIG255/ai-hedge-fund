@@ -2,8 +2,9 @@
 hedge_fund/data/cn_stock_data.py
 专用于选中标的之【财务基础面】与【舆情新闻】定向补充数据源
 
-数据来源（均为东方财富公开接口，无需 API Key）：
-  - datacenter-web.eastmoney.com  → 估值分析(PE_TTM/PS_TTM) / 财务指标(ROE/营收/净利)【已实测可用】
+数据来源（均为公开接口，无需 API Key，多源兜底）：
+  - qt.gtimg.cn（腾讯基础行情）      → PE(TTM)/PB/流通市值/总市值【用户机器稳定可达，作为估值兜底主源】
+  - datacenter-web.eastmoney.com     → 估值分析(PE_TTM) / 财务指标(ROE/营收/净利)【已实测可用】
   - push2.eastmoney.com (股票实时行情) → PB / 股息率TTM / 营收净利同比 / 主力净流入 / 流通市值【用户机器可达】
   - push2.eastmoney.com (个股资金流 daykline) → 主力净流入(按日)
 
@@ -59,27 +60,41 @@ class CNStockDataFetcher:
 
     # ───────────────────────── 1. 财务/估值（多源兜底） ─────────────────────────
     def fetch_stock_financials(self, symbol: str) -> Dict[str, str]:
-        """抓取单只股票核心财务/估值指标。datacenter 优先，push2 补充 PB/成长。"""
+        """抓取单只股票核心财务/估值指标。腾讯 gtimg 优先（用户机器可达），
+        datacenter 补充 ROE/成长，push2 补充 PB/股息率/成长；多源兜底避免整段变空。"""
         code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
         fin: Dict[str, str] = {}
 
-        # —— 源 A：datacenter 估值分析（PE_TTM / PS_TTM，已实测） ——
-        pe_ttm = self._datacenter_value("RPT_VALUEANALYSIS_DET", code, "PE_TTM")
-        if pe_ttm is not None:
-            fin["市盈率(TTM)"] = f"{pe_ttm:.2f}"
-        # —— 源 B：datacenter 财务指标（WEIGHTAVG_ROE，已实测） ——
+        # —— 源 A（优先）：腾讯 gtimg 基础行情 —— PE(TTM)[39] / PB[46] / 流通市值[44] / 总市值[45]
+        tq = self._tencent_quote(code)
+        if tq:
+            for idx, key in ((39, "市盈率(TTM)"), (46, "市净率(PB)"),
+                             (44, "流通市值(亿)"), (45, "总市值(亿)")):
+                v = tq.get(str(idx)) or tq.get(idx)
+                if v not in (None, "", "-", "--"):
+                    try:
+                        fin.setdefault(key, f"{float(v):.2f}")
+                    except ValueError:
+                        pass
+
+        # —— 源 B：datacenter 估值分析（PE_TTM 兜底）——
+        if "市盈率(TTM)" not in fin:
+            pe_ttm = self._datacenter_value("RPT_VALUEANALYSIS_DET", code, "PE_TTM")
+            if pe_ttm is not None:
+                fin["市盈率(TTM)"] = f"{pe_ttm:.2f}"
+        # —— 源 C：datacenter 财务指标（WEIGHTAVG_ROE）——
         roe = self._datacenter_value("RPT_LICO_FN_CPD", code, "WEIGHTAVG_ROE")
         if roe is not None:
             fin["ROE(净资产收益率)"] = f"{roe:.2f}%"
 
-        # —— 源 C：push2 实时行情补充 PB / 股息率TTM / 营收同比 / 净利同比 ——
+        # —— 源 D：push2 实时行情补充 PB / 股息率TTM / 营收同比 / 净利同比 ——
         q = self._push2_quote(code, fields="f57,f58,f167,f168,f182,f183,f173")
         if q:
             pb = q.get("f167")
             div = q.get("f168")
             rev_yoy = q.get("f182")
             net_yoy = q.get("f183")
-            if isinstance(pb, (int, float)):
+            if "市净率(PB)" not in fin and isinstance(pb, (int, float)):
                 fin.setdefault("市净率(PB)", f"{pb:.2f}")
             if isinstance(div, (int, float)) and div > 0:
                 fin.setdefault("股息率(TTM)", f"{div:.2f}%")
@@ -88,9 +103,14 @@ class CNStockDataFetcher:
             if isinstance(net_yoy, (int, float)):
                 fin.setdefault("净利润同比", f"{net_yoy:.2f}%")
 
-        if not fin:
+        # —— 归一化：缺失字段统一为「暂无」，避免模板里出现裸「-」 ——
+        for k in ("市盈率(TTM)", "市净率(PB)", "ROE(净资产收益率)",
+                  "营收同比", "净利润同比", "股息率(TTM)"):
+            fin.setdefault(k, "暂无")
+
+        if not any(v != "暂无" for v in fin.values()):
             print(f"⚠️ 读取个股 {code} 财务数据全部失败（接口限流或网络），返回暂无。")
-        return fin if fin else {"市盈率(TTM)": "暂无", "ROE": "暂无", "净利润同比": "暂无"}
+        return fin
 
     def _datacenter_value(self, report: str, code: str, column: str) -> Optional[float]:
         try:
@@ -121,6 +141,25 @@ class CNStockDataFetcher:
                 return r.json().get("data") or {}
         except Exception as e:  # noqa: BLE001
             print(f"⚠️ push2 行情读取 {code} 异常: {e}")
+        return None
+
+    # ───────────────────────── 1.5 腾讯 gtimg 基础行情（兜底） ─────────────────────────
+    def _tencent_quote(self, code: str) -> Optional[dict]:
+        """腾讯 gtimg 基础行情，返回按 `~` 拆分的字段表。
+
+        用户机器（大陆）对 qt.gtimg.cn 稳定可达（早盘价格即取自该节点），
+        故作为东财估值/市值数据的兜底源，避免东财偶发限流时估值维度整段变空。
+        字段索引（v_sh600000="..." 按 ~ 拆分）：
+          [39]=市盈率(TTM)  [46]=市净率(PB)  [44]=流通市值(亿)  [45]=总市值(亿)
+        """
+        tc = ("sh" if code.startswith("60") else "sz") + code
+        try:
+            r = _retry_get(f"http://qt.gtimg.cn/q={tc}", timeout=6)
+            if r and '="' in r.text:
+                fields = r.text.split('="')[1].split("~")
+                return {i: v for i, v in enumerate(fields)}
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 腾讯 gtimg 读取 {code} 异常: {e}")
         return None
 
     # ───────────────────────── 2. 主力净流入（资金面） ─────────────────────────

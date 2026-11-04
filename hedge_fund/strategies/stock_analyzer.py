@@ -17,14 +17,29 @@ import os
 import sys
 import time
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# 🔧 数据源（与 morning_picker 同目录即可找到 data 包）
+def _ensure_repo_root_on_path():
+    """
+    把仓库根（含 hedge_fund 包）加入 sys.path。
+
+    无论脚本以何种方式启动（cron / python3 xxx.py / python3 -m / 其它入口），
+    都保证 `hedge_fund.data.cn_stock_data.CNStockDataFetcher` 一定可被导入，
+    避免因路径未就绪导致 CNStockDataFetcher 变成 None、多维分析整段变空。
+    """
+    here = os.path.dirname(os.path.abspath(__file__))          # .../hedge_fund/strategies
+    for c in (here, os.path.dirname(here), os.path.dirname(os.path.dirname(here))):
+        if c and c not in sys.path:
+            sys.path.insert(0, c)
+
+
+_ensure_repo_root_on_path()
+
+# 🔧 数据源（多源兜底导入，确保 CNStockDataFetcher 一定可用）
 try:
-    from data.cn_stock_data import CNStockDataFetcher
+    from hedge_fund.data.cn_stock_data import CNStockDataFetcher
 except ImportError:
     try:
-        from hedge_fund.data.cn_stock_data import CNStockDataFetcher
+        from data.cn_stock_data import CNStockDataFetcher
     except ImportError:
         CNStockDataFetcher = None
 
