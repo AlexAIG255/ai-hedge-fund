@@ -15,16 +15,21 @@
     并由晚间复盘结果自动进化（SKILL_AUTO_EVOLVE），逐步降低误判。
 
 入口：
-  python holding_analyzer.py --image 持仓截图.jpg     # 识别+分析+推送
-  python holding_analyzer.py --daily                 # 用已存持仓做每日总结
-  python holding_analyzer.py --holdings-file x.json  # 直接给持仓JSON（免OCR，便于测试）
-  python holding_analyzer.py --feedback "经验文字"     # 手动沉淀一条经验
+  python holding_analyzer.py --text  "600519 100 1500"   # 文字录入（绕开视觉OCR）+分析+推送
+  python holding_analyzer.py --image 持仓截图.jpg         # 视觉识别+分析+推送（可选）
+  python holding_analyzer.py --daily                     # 用已存持仓做每日总结
+  python holding_analyzer.py --monitor                   # 立即对持仓做一次盘中异动扫描
+  python holding_analyzer.py --holdings-file x.json      # 直接给持仓JSON（免OCR，便于测试）
+  python holding_analyzer.py --feedback "经验文字"        # 手动沉淀一条经验
+
+注：文字录入为首选（无需视觉模型，最省）；--text 支持多行、顺序无关、命令(清空/总结/异动)。
 """
 
 import argparse
 import base64
 import json
 import os
+import re
 import sys
 import time
 from datetime import datetime
@@ -75,6 +80,23 @@ except ImportError:
         make_llm = None
         extract_json = None
 
+# 🔬 异动监控复用（盘中监控的行情拉取 / 阈值检测；三个行情节点不修改，仅复用其读取）
+try:
+    from intraday_monitor import fetch_realtime_quotes, detect_anomalies
+except ImportError:
+    fetch_realtime_quotes = detect_anomalies = None
+try:
+    from strategy_config import get_anomaly_thresholds
+except ImportError:
+    def get_anomaly_thresholds():
+        return {"strong_pct": 5.0, "weak_pct": -5.0, "vol_ratio": 3.0, "turnover": 8.0, "amplitude": 6.0}
+
+# 🏛️ 持仓分析是否附「多空议会」结论（看多/看空/大市/风控 交锋），与早盘/晚间一致
+try:
+    from agent_council import run_council, council_brief
+except ImportError:
+    run_council = council_brief = None
+
 
 # ── 配置 ─────────────────────────────────────────────────────────────────
 HOLDINGS_FILE = os.environ.get("HOLDINGS_FILE", "my_holdings.json")
@@ -94,6 +116,8 @@ DIFY_API_URL = os.environ.get("DIFY_API_URL", "https://api.dify.ai/v1/chat-messa
 DIFY_API_KEY = os.environ.get("DIFY_API_KEY", "").strip()
 DIFY_ENABLED = bool(DIFY_API_KEY) and os.environ.get("DIFY_ENABLED", "false").lower() in ("true", "1", "yes")
 DIFY_USER = os.environ.get("DIFY_USER", "hedge-fund-bot")
+# 持仓分析附多空议会（默认开；关闭则只给单边操作建议，省一次行情/LLM）
+HOLDING_COUNCIL = os.environ.get("HOLDING_COUNCIL", "true").lower() in ("true", "1", "yes")
 
 
 # ==========================================================
@@ -493,6 +517,16 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
     if decision is None:
         decision = _template_decision(code, name, cost, cur, snap)
 
+    # 🏛️ 附「多空议会」结论（看多/看空/大市/风控 交锋），与早盘/晚间一致；失败不影响主流程
+    council_text = ""
+    if HOLDING_COUNCIL and run_council and council_brief and cost > 0:
+        try:
+            holding_arg = {"cost_price": cost, "pnl_pct": pnl_pct}
+            rep = run_council(code, name, cur, "持仓分析", holding_arg, snap)
+            council_text = council_brief(rep)
+        except Exception as e:
+            print(f"⚠️ 议会分析 {name}({code}) 失败，跳过: {e}")
+
     return {
         "code": code, "name": name, "quantity": qty,
         "cost_price": cost, "current_price": cur,
@@ -501,6 +535,7 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
         "capital_flow": snap.get("capital_flow", "暂无"),
         "risk_hint": build_risk_hint(snap, "") if build_risk_hint else "",
         "news": [n.get("title", "") for n in (snap.get("news") or [])][:3],
+        "council": council_text,
         **decision,
     }
 
@@ -540,6 +575,9 @@ def build_daily_summary(results: List[Dict]) -> str:
             f"• 点评：{r['comment']}\n"
             f"• 舆情：{('；'.join(r['news']) if r['news'] else '暂无重大舆情')}"
         )
+        if r.get("council"):
+            lines.append(r["council"])
+        lines.append("-----------------------------------")
         lines.append("-----------------------------------")
 
     lines.append("💡 提示：以上为量化+基本面辅助参考，非投资建议；做T需结合实时盘口与手续费成本。")
@@ -706,13 +744,140 @@ def _analyze_and_summarize(holdings: List[Dict]) -> str:
 
 
 # ==========================================================
+# 8.5 文字录入持仓（绕开视觉 OCR，纯文字）
+# ==========================================================
+def parse_holdings_text(text: str) -> List[Dict]:
+    """解析简约文字持仓，每行一只，格式灵活、顺序无关：
+        600519 100 1500          （代码 数量 单价）
+        100 1500 600519          （数量 单价 代码）
+        600519 贵州茅台 100 1500  （可带名称）
+    规则：6 位数字视为代码；其余两个数字按【出现顺序】= 数量、单价。
+          「单价」即你的持仓成本价，现价由系统自动拉实时行情计算盈亏。
+    支持空格 / 逗号 / 顿号 / Tab / 换行分隔；支持 # 注释行。
+    """
+    holdings = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        # 去掉常见说明词，避免干扰
+        line = line.replace("代码", " ").replace("数量", " ").replace("单价", " ").replace("股", " ")
+        m = re.search(r"\b(\d{6})\b", line)
+        if not m:
+            continue
+        code = m.group(1)
+        rest = (line[:m.start()] + " " + line[m.end():]).strip()
+        name = ""
+        nm = re.search(r"([\u4e00-\u9fa5]{2,8})", rest)  # 中文名称为 2-8 字
+        if nm:
+            name = nm.group(1)
+            rest = (rest[:nm.start()] + " " + rest[nm.end():]).strip()
+        nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", rest)]
+        if len(nums) < 2:
+            continue
+        qty, price = nums[0], nums[1]
+        if qty <= 0 or price <= 0:
+            continue
+        holdings.append({
+            "code": code,
+            "name": name or code,
+            "quantity": qty,
+            "cost_price": price,      # 用户给的「单价」= 持仓成本价
+            "current_price": 0.0,     # 0 表示用实时价（analyze_holding 自动拉取）
+        })
+    return holdings
+
+
+def run_from_text(text: str) -> str:
+    """文字录入入口：解析 → 存盘 → 分析 → 推送；并支持命令。
+    命令： 清空 / 总结(复盘/每日) / 异动(监控) 。"""
+    t = (text or "").strip()
+    low = t.lower()
+    if low in ("clear", "清空", "清除", "重置", "reset"):
+        save_holdings([])
+        return "🗑 已清空持仓数据。下次输入新持仓即更新（如：600519 100 1500）。"
+    if any(k in t for k in ("总结", "复盘", "每日", "daily")):
+        return run_daily()
+    if any(k in t for k in ("监控", "异动", "monitor", "scan")):
+        alerts = run_holding_monitor()
+        return ("📡 已执行一次持仓异动扫描" + ("并推送提醒。" if alerts else "，当前无标的触发异动。"))
+    holdings = parse_holdings_text(t)
+    if not holdings:
+        return ("⚠️ 未识别到持仓。请按简约格式输入（每行一只）：\n"
+                "　代码 数量 单价　例： 600519 100 1500\n"
+                "　或 数量 单价 代码　例： 100 1500 600519\n"
+                "（命令：总结 / 清空 / 异动）")
+    save_holdings(holdings)
+    return _analyze_and_summarize(holdings)
+
+
+# ==========================================================
+# 8.6 持仓异动自动提醒（复用盘中监控的行情与阈值）
+# ==========================================================
+def _is_trading_time() -> bool:
+    now = time.localtime()
+    if now.tm_wday >= 5:          # 周末不监控
+        return False
+    h, m = now.tm_hour, now.tm_min
+    return ((9, 30) <= (h, m) <= (11, 30)) or ((13, 0) <= (h, m) <= (15, 0))
+
+
+def run_holding_monitor() -> List[Dict]:
+    """扫描 my_holdings.json 中的持仓，命中异动阈值则推送企微提醒。返回触发列表。"""
+    if not (fetch_realtime_quotes and detect_anomalies):
+        print("⚠️ 异动监控依赖不可用（intraday_monitor）。")
+        return []
+    holdings = load_holdings()
+    if not holdings:
+        print("💡 暂无持仓，跳过异动监控。")
+        return []
+    th = get_anomaly_thresholds()
+    codes = [str(h["code"]).zfill(6) for h in holdings]
+    quotes = fetch_realtime_quotes(codes)
+    alerts = []
+    for h in holdings:
+        code = str(h["code"]).zfill(6)
+        q = quotes.get(code)
+        if not q:
+            continue
+        flags = detect_anomalies(h, q, th)
+        if flags:
+            alerts.append({"code": code, "name": h.get("name", code),
+                           "price": q["price"], "pct": q["pct"], "flags": flags})
+    if alerts:
+        _push_holding_alerts(alerts)
+    else:
+        print("✅ 持仓异动监控：当前无标的触发异动。")
+    return alerts
+
+
+def _push_holding_alerts(alerts: List[Dict]):
+    today = time.strftime("%Y-%m-%d")
+    lines = [
+        f"📡 **【我的持仓 · 盘中异动提醒】** ({today})",
+        "-----------------------------------",
+        "以下持仓触发异动（非买卖指令，请结合交易计划）：",
+    ]
+    for a in alerts:
+        lines.append(
+            f"🔔 **{a['name']}** (`{a['code']}`) 现价 `{a['price']:.2f}` 涨跌 `{a['pct']:+.2f}%`\n"
+            f"• 异动：{'、'.join(a['flags'])}"
+        )
+    lines.append("-----------------------------------")
+    lines.append("💡 异动提醒仅供参考，请结合自身风控与盘口决策。")
+    push_wechat("\n".join(lines))
+
+
+# ==========================================================
 # 9. CLI
 # ==========================================================
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="持仓截图分析 + 每日总结 + 自动进化 Skill")
-    ap.add_argument("--image", help="持仓截图路径（jpg/png），识别后分析推送")
+    ap = argparse.ArgumentParser(description="持仓分析（文字/截图录入）+ 每日总结 + 异动监控 + 自动进化 Skill")
+    ap.add_argument("--image", help="持仓截图路径（jpg/png），视觉识别后分析推送")
     ap.add_argument("--holdings-file", help="直接传入持仓JSON文件（免OCR，便于测试）")
     ap.add_argument("--daily", action="store_true", help="用已存持仓做每日详细总结")
+    ap.add_argument("--text", help="直接传入简约文字持仓（如 '600519 100 1500'），录入+分析推送")
+    ap.add_argument("--monitor", action="store_true", help="立即对当前持仓执行一次盘中异动扫描并推送")
     ap.add_argument("--feedback", help="手动沉淀一条经验到 Skill 记忆")
     args = ap.parse_args()
 
@@ -722,6 +887,10 @@ if __name__ == "__main__":
         print(run_from_image(args.image))
     elif args.holdings_file:
         print(run_from_holdings_file(args.holdings_file))
+    elif args.text:
+        print(run_from_text(args.text))
+    elif args.monitor:
+        run_holding_monitor()
     elif args.daily:
         print(run_daily())
     else:

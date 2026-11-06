@@ -27,6 +27,7 @@
 import base64
 import hashlib
 import os
+import re
 import struct
 import sys
 import threading
@@ -197,6 +198,14 @@ def _handle_image(user_id: str, media_id: str):
 
 def _handle_text(user_id: str, text: str):
     try:
+        # 🆕 文字录入持仓：含 6 位代码 + 数字（且非纯命令）→ 视为持仓录入
+        #    例： 600519 100 1500  /  100 1500 600519
+        #    该路径使「用内网穿透暴露本回调」后，可直接在企微对话框里文字录入持仓。
+        if (re.search(r"\b\d{6}\b", text) and re.search(r"\d+", text)
+                and not text.startswith(("复盘", "总结", "每日", "反馈", "教训", "经验", "清空", "清除", "持仓"))):
+            result = ha.run_from_text(text)
+            send_app_message(user_id, result)
+            return
         if any(k in text for k in ("复盘", "总结", "每日", "持仓")):
             result = ha.run_daily()
             send_app_message(user_id, result)
@@ -208,7 +217,9 @@ def _handle_text(user_id: str, text: str):
             else:
                 send_app_message(user_id, "请输入『反馈: 你的经验文字』来沉淀一条经验。")
         else:
-            send_app_message(user_id, "可发送：①持仓截图（自动识别+分析）②文字『复盘』（每日总结）③『反馈: …』（沉淀经验）。")
+            send_app_message(user_id,
+                "可发送：①持仓文字『代码 数量 单价』（如 600519 100 1500）②持仓截图（自动识别+分析）"
+                "③文字『复盘』（每日总结）④『反馈: …』（沉淀经验）。")
     except Exception as e:
         send_app_message(user_id, f"⚠️ 处理失败：{e}")
 
