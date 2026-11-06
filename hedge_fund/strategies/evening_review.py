@@ -81,14 +81,14 @@ except ImportError:
 
 # 🏛️ 引入多 Agent 议会（看多/看空/大市/风控 交锋，风控终裁中肯结论）
 try:
-    from agent_council import run_council as _council_run, council_compact
+    from agent_council import run_council as _council_run, council_brief
 except ImportError:
     try:
         from hedge_fund.strategies.agent_council import (
-            run_council as _council_run, council_compact)
+            run_council as _council_run, council_brief)
     except ImportError:
         _council_run = None
-        council_compact = None
+        council_brief = None
 
 # 🏛️ 晚间议会开关（默认开启；关闭则逐只持仓不附议会结论，省 LLM）
 EVENING_COUNCIL = os.environ.get("EVENING_COUNCIL", "true").lower() in ("true", "1", "yes")
@@ -614,8 +614,8 @@ class EveningReviewAgent:
         chunk_size = 3
         total_chunks = (len(summary_list) + chunk_size - 1) // chunk_size
 
-        # 🔬 可选：晚间复盘也给持仓股补多维分析（需联网+LLM，默认关闭以省资源）
-        do_analysis = os.environ.get("EVENING_ANALYSIS", "false").lower() in ["true", "1", "yes"]
+        # 🔬 晚间复盘给持仓股补多维分析（财报/盘面/资金面/消息面，带降级；默认开启）
+        do_analysis = os.environ.get("EVENING_ANALYSIS", "true").lower() in ["true", "1", "yes"]
         if do_analysis and enrich_stock and generate_analysis_text:
             print("🔬 晚间复盘补充持仓股多维分析...")
             for s in summary_list:
@@ -661,8 +661,8 @@ class EveningReviewAgent:
                     line += f"• 📊 多维分析: {s['analysis']}\n"
                 else:
                     line += f"• 归因: {s['reason']}\n"
-                # 🏛️ 多 Agent 议会中肯结论（看多/看空/大市/风控 交锋，风控终裁）
-                if EVENING_COUNCIL and _council_run and council_compact:
+                # 🏛️ 多 Agent 议会中肯结论（看多/看空/大市/风控 交锋 + 风控终裁，含多空双方辩论）
+                if EVENING_COUNCIL and _council_run and council_brief:
                     try:
                         _cp = float(s.get("curr_price") or 0)
                         _ep = float(s.get("entry_price") or 0)
@@ -670,7 +670,7 @@ class EveningReviewAgent:
                         _holding = {"cost_price": _ep, "pnl_pct": _ret} if _ep > 0 else None
                         _rep = _council_run(str(s["code"]).zfill(6), s["name"], _cp,
                                            s.get("strategy", "综合选股"), _holding)
-                        line += council_compact(_rep) + "\n"
+                        line += council_brief(_rep) + "\n"
                     except Exception as e:
                         print(f"⚠️ 议会分析 {s.get('code')} 失败，跳过: {e}")
                 lines.append(line)

@@ -75,14 +75,18 @@ except ImportError:
 
 # 🏛️ 引入多 Agent 议会（看多/看空/大市/风控 交锋，风控终裁中肯报告）
 try:
-    from agent_council import run_council as _council_run, COUNCIL_ENABLED as _COUNCIL_ENABLED
+    from agent_council import (
+        run_council as _council_run, COUNCIL_ENABLED as _COUNCIL_ENABLED,
+        council_brief as _council_brief)
 except ImportError:
     try:
         from hedge_fund.strategies.agent_council import (
-            run_council as _council_run, COUNCIL_ENABLED as _COUNCIL_ENABLED)
+            run_council as _council_run, COUNCIL_ENABLED as _COUNCIL_ENABLED,
+            council_brief as _council_brief)
     except ImportError:
         _council_run = None
         _COUNCIL_ENABLED = False
+        _council_brief = None
 
 # 🛡️ 稳健模式需用到资金流 / 流通市值 实接口
 try:
@@ -1002,6 +1006,10 @@ class MorningStockPickerAgent:
         council_limit = int(os.environ.get("COUNCIL_MAX_STOCKS", "5"))
         for idx, i in enumerate(final_items):
             strat = strategy_name(i.get("strategy_key", i.get("strategy", "")))
+            # 📊 多维分析限长（避免单只消息超 1800 字被拆段，导致多维分析与多空双方分散到两条消息）
+            analysis_text = i.get("analysis", i.get("trend_iq_analysis", "")) or ""
+            if len(analysis_text) > 360:
+                analysis_text = analysis_text[:360].rstrip() + "…"
             chunk = (
                 f"🎯 **【精选个股研报】** **{i['name']}** (`{i['code']}`)\n"
                 f"-----------------------------------\n"
@@ -1014,17 +1022,18 @@ class MorningStockPickerAgent:
                 f"⏳ **持续观察期**: `{get_observation_days(strat)}天`（到点强平）\n"
                 f"💡 **股息率**: {i.get('dividend_yield', '暂无')} | **主力净流入**: {i.get('capital_flow', '暂无')}\n"
                 f"⚠️ **风险提示**: {i.get('risk_hint', '-')}\n"
-                f"-----------------------------------\n"
-                f"📊 **多维分析（财报/盘面/资金面/消息面）**:\n{i.get('analysis', i.get('trend_iq_analysis', ''))}"
             )
-            # 🏛️ 多 Agent 议会中肯报告（仅 top N 候选，避免过长/过耗；失败降级跳过）
-            if _COUNCIL_ENABLED and _council_run and idx < council_limit and i.get("_snap") is not None:
+            # 🏛️ 多 Agent 议会中肯报告（看多/看空/大市/风控 交锋 + 风控终裁），置于多维分析之前，
+            #    确保「多空双方」清晰可见；仅 top N 候选，失败降级跳过
+            if _COUNCIL_ENABLED and _council_run and _council_brief and idx < council_limit and i.get("_snap") is not None:
                 try:
                     price_f = float(str(i.get("price", "0")).replace("元", "")) or 0.0
                     rep = _council_run(str(i["code"]), str(i["name"]), price_f, strat, None, i.get("_snap"))
-                    chunk += f"\n\n{rep['report_md']}"
+                    chunk += f"-----------------------------------\n{_council_brief(rep)}\n"
                 except Exception as e:
                     print(f"⚠️ 议会分析 {i.get('code')} 失败，跳过: {e}")
+            # 📊 多维分析（财报/盘面/资金面/消息面）
+            chunk += f"-----------------------------------\n📊 **多维分析（财报/盘面/资金面/消息面）**:\n{analysis_text}"
             message_chunks.append(chunk)
 
         full_md = "\n\n---\n\n".join(message_chunks)

@@ -528,6 +528,26 @@ def council_compact(r: dict) -> str:
     )
 
 
+def council_brief(r: dict) -> str:
+    """紧凑版议会结论（**含多空双方辩论 + 风控终裁**），供企业微信推送，
+    保证「多空双方」清晰可见且单只标的不会因过长被拆段而丢失。"""
+    rf = r["risk_final"]
+    b, be = r["bull"], r["bear"]
+    obs = r["observer"]["view"]
+    stop = f" 止损`{rf['stop_loss']}`" if rf["stop_loss"] else ""
+    verdict = rf["overrides"] or rf["reasoning"]
+    return (
+        f"🏛️ **【多空议会 · {r['consensus_label']}】**\n"
+        f"🌐 大市({r['market'].get('stance', '-')}): {obs}\n"
+        f"🐂 **看多操盘手(信心{b['conviction']})**: {b['view']}\n"
+        f"　↳ 交锋: {b['rebuttal']}\n"
+        f"🐻 **看空操盘手(信心{be['conviction']})**: {be['view']}\n"
+        f"　↳ 交锋: {be['rebuttal']}\n"
+        f"🛡️ **风险风控官·终裁: {rf['final_action']}** 仓位≤{rf['max_position_pct']}%{stop}\n"
+        f"　↳ {verdict}"
+    )
+
+
 def _to_markdown(r: dict) -> str:
     rf = r["risk_final"]
     icon = "🟢" if r["is_holding"] else "🔍"
