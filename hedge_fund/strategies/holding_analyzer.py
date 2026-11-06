@@ -119,6 +119,18 @@ DIFY_USER = os.environ.get("DIFY_USER", "hedge-fund-bot")
 # 持仓分析附多空议会（默认开；关闭则只给单边操作建议，省一次行情/LLM）
 HOLDING_COUNCIL = os.environ.get("HOLDING_COUNCIL", "true").lower() in ("true", "1", "yes")
 
+# 🔧 持仓做T / 风控参数（环境变量可调，便于按你的风险偏好调参，无需改代码）
+#   HOLDING_STOP_LOSS_RATIO  止损线（相对成本），默认 0.95（成本×0.95 = -5% 离场）
+#   HOLDING_TAKE_PROFIT_RATIO 止盈线（相对成本），默认 1.08（+8% 止盈）
+#   HOLDING_T_BAND           做T带（相对 min/max(成本,现价) 的低吸/高抛幅度），默认 0.01（±1%）
+#   HOLDING_T_TRIGGER_PCT    浮盈达到该%才提示「可做T」，默认 8
+#   HOLDING_CONTROL_PCT      浮亏达到该%转「观望/控仓」，默认 -5
+HOLDING_STOP_LOSS_RATIO = float(os.environ.get("HOLDING_STOP_LOSS_RATIO", "0.95"))
+HOLDING_TAKE_PROFIT_RATIO = float(os.environ.get("HOLDING_TAKE_PROFIT_RATIO", "1.08"))
+HOLDING_T_BAND = float(os.environ.get("HOLDING_T_BAND", "0.01"))
+HOLDING_T_TRIGGER_PCT = float(os.environ.get("HOLDING_T_TRIGGER_PCT", "8"))
+HOLDING_CONTROL_PCT = float(os.environ.get("HOLDING_CONTROL_PCT", "-5"))
+
 
 # ==========================================================
 # 1. 视觉 OCR：从持仓截图识别 代码 / 数量 / 价格
@@ -383,17 +395,17 @@ def fetch_realtime_price(code: str) -> float:
 # 4. 个股分析（LLM 优先 + 模板降级）
 # ==========================================================
 def _template_decision(code: str, name: str, cost: float, cur: float, snap: dict) -> Dict:
-    """无 LLM 时的降级结构化建议。"""
+    """无 LLM 时的降级结构化建议（参数支持环境变量调参）。"""
     if cost <= 0:
         cost = cur or 1.0
-    stop = round(cost * 0.95, 2)
-    tp = round(cost * 1.08, 2)
-    t_buy = round(min(cur, cost) * 0.99, 2)
-    t_sell = round(max(cur, cost) * 1.01, 2)
+    stop = round(cost * HOLDING_STOP_LOSS_RATIO, 2)
+    tp = round(cost * HOLDING_TAKE_PROFIT_RATIO, 2)
+    t_buy = round(min(cur, cost) * (1 - HOLDING_T_BAND), 2)
+    t_sell = round(max(cur, cost) * (1 + HOLDING_T_BAND), 2)
     pnl_pct = ((cur - cost) / cost * 100) if cost > 0 else 0.0
-    if pnl_pct >= 8:
+    if pnl_pct >= HOLDING_T_TRIGGER_PCT:
         action = "持有/可做T"
-    elif pnl_pct <= -5:
+    elif pnl_pct <= HOLDING_CONTROL_PCT:
         action = "观望/控仓"
     else:
         action = "持有"
@@ -427,10 +439,10 @@ def _assemble_decision(parsed: Dict, cost: float, cur: float) -> Dict:
             return default
     return {
         "action": _trim(str(parsed.get("action", "持有")), 8) or "持有",
-        "t_buy": num(parsed.get("t_buy"), round(min(cur, cost) * 0.99, 2)),
-        "t_sell": num(parsed.get("t_sell"), round(max(cur, cost) * 1.01, 2)),
-        "stop_loss": num(parsed.get("stop_loss"), round(cost * 0.95, 2)),
-        "take_profit": num(parsed.get("take_profit"), round(cost * 1.08, 2)),
+        "t_buy": num(parsed.get("t_buy"), round(min(cur, cost) * (1 - HOLDING_T_BAND), 2)),
+        "t_sell": num(parsed.get("t_sell"), round(max(cur, cost) * (1 + HOLDING_T_BAND), 2)),
+        "stop_loss": num(parsed.get("stop_loss"), round(cost * HOLDING_STOP_LOSS_RATIO, 2)),
+        "take_profit": num(parsed.get("take_profit"), round(cost * HOLDING_TAKE_PROFIT_RATIO, 2)),
         # 🪶 字数控制：盈亏归因 ≤60 字、点评 ≤40 字，避免长文本刷屏/耗 token
         "attribution": _trim(parsed.get("attribution", ""), 60),
         "comment": _trim(parsed.get("comment", ""), 40),

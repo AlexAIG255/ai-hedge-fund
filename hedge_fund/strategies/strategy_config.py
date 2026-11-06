@@ -130,7 +130,9 @@ def to_market_code(code: str) -> str:
 
 # ───────────────────────── 6. 盘中异动监控阈值 ─────────────────────────
 # 盘中监控（intraday_monitor.py）只用『异动提醒』，不再做止盈止损平仓。
-# 以下为异动判定阈值，统一在此调参。
+# 以下为异动判定阈值，统一在此调参；支持用环境变量覆盖（见 get_anomaly_thresholds）。
+# 环境变量键名：ANOMALY_STRONG_PCT / ANOMALY_WEAK_PCT / ANOMALY_VOL_RATIO /
+#              ANOMALY_TURNOVER / ANOMALY_AMPLITUDE
 ANOMALY_THRESHOLDS = {
     "strong_pct": 5.0,       # 涨幅 ≥ 该值(%) → 强势异动（放量上攻）
     "weak_pct": -5.0,        # 跌幅 ≤ 该值(%) → 弱势异动（风险提醒）
@@ -140,9 +142,23 @@ ANOMALY_THRESHOLDS = {
 }
 
 
+def _env_float(key: str, default: float) -> float:
+    try:
+        v = os.environ.get(key)
+        return float(v) if v not in (None, "") else default
+    except (ValueError, TypeError):
+        return default
+
+
 def get_anomaly_thresholds() -> dict:
-    """返回盘中异动阈值的副本，供监控模块调用。"""
-    return dict(ANOMALY_THRESHOLDS)
+    """返回盘中异动阈值（环境变量覆盖默认值），供监控模块调用。"""
+    t = dict(ANOMALY_THRESHOLDS)
+    t["strong_pct"] = _env_float("ANOMALY_STRONG_PCT", t["strong_pct"])
+    t["weak_pct"] = _env_float("ANOMALY_WEAK_PCT", t["weak_pct"])
+    t["vol_ratio"] = _env_float("ANOMALY_VOL_RATIO", t["vol_ratio"])
+    t["turnover"] = _env_float("ANOMALY_TURNOVER", t["turnover"])
+    t["amplitude"] = _env_float("ANOMALY_AMPLITUDE", t["amplitude"])
+    return t
 
 
 # ───────────────────────── 7. 稳健型模式（右侧交易 + 重视资金 + 控风险） ─────────────────────────

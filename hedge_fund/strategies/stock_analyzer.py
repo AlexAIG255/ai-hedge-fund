@@ -64,11 +64,43 @@ def _get_fetcher() -> "CNStockDataFetcher":
 # ──────────────────────────────────────────────────────────────
 # 1. 数据富集：财报 + 股息 + 资金面 + 舆情
 # ──────────────────────────────────────────────────────────────
+# 🔧 财报字段数值合理性阈值：东财 push2 的 f182/f183（营收/净利同比）偶发返回
+# 天文数字原始值（如 133283652508.95），直接格式化会污染多空打分。这里在
+# 下游所有消费点之前统一兜底过滤：超出合理区间一律归「暂无」（诚实优于假数据）。
+_FIN_SANE_LIMITS = {
+    "营收同比": 10000.0,        # |%| 超过 10000% 视为脏值
+    "净利润同比": 10000.0,      # |%| 同上
+    "市盈率(TTM)": 1000.0,      # 正常 PE 多在 -1000~1000（负值为亏损股，放行）
+    "市净率(PB)": 1000.0,       # PB 正常 <= 1000
+    "ROE(净资产收益率)": 1000.0,  # |%| 正常 <= 1000%
+    "股息率(TTM)": 100.0,       # |%| 正常 <= 100
+}
+
+
+def _sanitize_financials(fin: dict) -> dict:
+    """就地过滤财报字段的脏值：超出合理区间的百分比/倍数归「暂无」。"""
+    if not isinstance(fin, dict):
+        return fin
+    for key, limit in _FIN_SANE_LIMITS.items():
+        val = fin.get(key, "暂无")
+        if val in ("暂无", "", None):
+            continue
+        try:
+            num = float(str(val).replace("%", "").replace(",", "").strip())
+        except (ValueError, TypeError):
+            fin[key] = "暂无"
+            continue
+        if abs(num) > limit:
+            fin[key] = "暂无"
+    return fin
+
+
 def enrich_stock(code: str, name: str, price: float = 0.0, news_limit: int = 3) -> dict:
     """拉取单只标的的多维数据快照（带容错，单只失败不影响整体）。"""
     try:
         snap = _get_fetcher().fetch_full_snapshot(code, name, news_limit=news_limit)
         snap["price"] = price
+        _sanitize_financials(snap.get("financials", {}))  # 🔧 过滤脏值，下游统一干净
         return snap
     except Exception as e:
         print(f"⚠️ 富集 {name}({code}) 数据失败: {e}")

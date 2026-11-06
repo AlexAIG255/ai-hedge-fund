@@ -98,9 +98,11 @@ class CNStockDataFetcher:
                 fin.setdefault("市净率(PB)", f"{pb:.2f}")
             if isinstance(div, (int, float)) and div > 0:
                 fin.setdefault("股息率(TTM)", f"{div:.2f}%")
-            if isinstance(rev_yoy, (int, float)):
+            # 🔧 合理性过滤：东财 f182/f183 偶发返回天文数字原始值（如 1.3e11），
+            # 直接格式化会污染分析。|%| 超 10000 视为脏值，跳过 → 归「暂无」。
+            if isinstance(rev_yoy, (int, float)) and abs(rev_yoy) <= 10000:
                 fin.setdefault("营收同比", f"{rev_yoy:.2f}%")
-            if isinstance(net_yoy, (int, float)):
+            if isinstance(net_yoy, (int, float)) and abs(net_yoy) <= 10000:
                 fin.setdefault("净利润同比", f"{net_yoy:.2f}%")
 
         # —— 归一化：缺失字段统一为「暂无」，避免模板里出现裸「-」 ——
