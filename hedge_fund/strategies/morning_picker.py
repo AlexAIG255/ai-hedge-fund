@@ -1003,7 +1003,9 @@ class MorningStockPickerAgent:
 
         # 📱 构造最终推送消息（加入建议建仓价、风控、股息率、资金面、风险、多维分析）
         message_chunks = []
+        chunk_headers = []   # 与 message_chunks 同序：拆段时给每段前置的抬头，避免个股混淆
         council_limit = int(os.environ.get("COUNCIL_MAX_STOCKS", "5"))
+        total_picks = len(final_items)
         for idx, i in enumerate(final_items):
             strat = strategy_name(i.get("strategy_key", i.get("strategy", "")))
             # 📊 多维分析限长（避免单只消息超 1800 字被拆段，导致多维分析与多空双方分散到两条消息）
@@ -1035,8 +1037,11 @@ class MorningStockPickerAgent:
             # 📊 多维分析（财报/盘面/资金面/消息面）
             chunk += f"-----------------------------------\n📊 **多维分析（财报/盘面/资金面/消息面）**:\n{analysis_text}"
             message_chunks.append(chunk)
+            # 抬头：序号 + 股票名 + 代码，拆段后每段都带，避免多只个股消息混淆
+            chunk_headers.append(f"【{idx + 1}/{total_picks}】{i['name']}({i['code']})")
 
         full_md = "\n\n---\n\n".join(message_chunks)
+        self._last_chunk_headers = chunk_headers  # 供 push_to_wechat_work 拆段时读取
         return final_items, message_chunks, full_md
 
     # ==========================================
@@ -1048,11 +1053,13 @@ class MorningStockPickerAgent:
             print("⚠️ 未配置 WECHAT_WEBHOOK（或 .env 未加载），跳过企业微信推送。请确认 .env 中存在有效 webhook。")
             return False
 
-        # 预拆分：单条超长自动再分段，避免企业微信单条过长被风控封锁
+        # 预拆分：单条超长自动再分段；每段前置「序号+股票名(代码)」抬头，避免个股消息混淆
+        headers = getattr(self, "_last_chunk_headers", None)
         if split_wechat_message:
             flat = []
-            for c in message_chunks:
-                flat.extend(split_wechat_message(c, max_len=1800))
+            for ci, c in enumerate(message_chunks):
+                header = headers[ci] if headers and ci < len(headers) else ""
+                flat.extend(split_wechat_message(c, max_len=1800, header=header))
         else:
             flat = message_chunks
 

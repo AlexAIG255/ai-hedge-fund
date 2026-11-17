@@ -15,6 +15,7 @@ hedge_fund/data/cn_stock_data.py
 """
 
 import datetime
+import re
 import time
 from typing import Dict, List, Optional, Tuple
 import requests
@@ -185,7 +186,8 @@ class CNStockDataFetcher:
             }
             r = _retry_get(url, params=params, timeout=6)
             if r:
-                klines = r.json().get("data", {}).get("klines") or []
+                _data = r.json().get("data") or {}
+                klines = (_data.get("klines") if isinstance(_data, dict) else None) or []
                 if klines:
                     parts = klines[0].split(",")
                     if len(parts) > 1 and parts[1] not in ("", "-", None):
@@ -218,36 +220,92 @@ class CNStockDataFetcher:
             return f"{q['f168']:.2f}%"
         return "暂无"
 
-    # ───────────────────────── 5. 舆情新闻 ─────────────────────────
+    # ───────────────────────── 5. 舆情新闻（新浪主源 + 东财兜底） ─────────────────────────
+    @staticmethod
+    def _market_prefix(clean_code: str) -> str:
+        if clean_code.startswith(("60", "68", "9")):
+            return "sh"
+        if clean_code.startswith(("00", "30", "2")):
+            return "sz"
+        if clean_code.startswith(("8", "4")):
+            return "bj"
+        return "sh"
+
+    def _sina_stock_news(self, clean_code: str, name: str, limit: int) -> List[Dict[str, str]]:
+        """新浪财经个股资讯页（gb18030，.datelist 下 <a> 即真实新闻标题）。
+        该页同时含【个股新闻】与【行业/板块消息】，实测大陆环境稳定可达。"""
+        prefix = self._market_prefix(clean_code)
+        news_list: List[Dict[str, str]] = []
+        url = (f"https://vip.stock.finance.sina.com.cn/corp/go.php/"
+               f"vCB_AllNewsStock/symbol/{prefix}{clean_code}.phtml")
+        try:
+            r = _retry_get(url, timeout=8, tries=2)
+            if r is None:
+                return []
+            r.encoding = "gb18030"
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(r.text, "html.parser")
+                dl = soup.select_one(".datelist")
+                anchors = dl.select("a") if dl else []
+            except ImportError:
+                # 无 bs4 时用正则从 datelist 片段里抠 <a>
+                seg = r.text[r.text.find('datelist'):]
+                anchors = re.findall(r"<a[^>]*href=['\"]([^'\"]+)['\"][^>]*>(.*?)</a>", seg[:20000], re.S)
+                news_list = []
+                for href, title in anchors:
+                    t = re.sub(r"<[^>]+>", "", title).strip()
+                    if len(t) >= 8:
+                        news_list.append({"media": "新浪财经", "title": t, "url": href})
+                return news_list[:limit]
+            for a in anchors:
+                title = a.get_text(" ", strip=True)
+                if len(title) < 8:
+                    continue
+                news_list.append({
+                    "media": "新浪财经",
+                    "title": title,
+                    "url": a.get("href", ""),
+                })
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 新浪个股资讯 {clean_code} 失败: {e}")
+        return news_list[:limit]
+
+    def _eastmoney_stock_news(self, clean_code: str, name: str, limit: int) -> List[Dict[str, str]]:
+        """东财兜底源（原 cmsArticleWebOld 接口已失效，改用资讯搜索 jsonp）。"""
+        news_list: List[Dict[str, str]] = []
+        import json as _json
+        from urllib.parse import quote
+        param = {
+            "uid": "", "keyword": name, "type": ["cmsArticleWebOld"],
+            "client": "web", "clientType": "web", "clientVersion": "curr",
+            "param": {"cmsArticleWebOld": {
+                "searchScope": "default", "sort": "time", "pageIndex": 1, "pageSize": limit,
+            }},
+        }
+        url = "https://search-api-web.eastmoney.com/search/jsonp?cb=cb&param=" + quote(_json.dumps(param))
+        try:
+            r = _retry_get(url, timeout=6, tries=2)
+            if r and "cb(" in r.text:
+                data = _json.loads(r.text[r.text.find("cb(") + 3: r.text.rfind(")")])
+                for item in (data.get("result", {}) or {}).get("cmsArticleWebOld", []):
+                    title = item.get("title", "").replace("<em>", "").replace("</em>", "")
+                    if title:
+                        news_list.append({
+                            "media": item.get("mediaName", "财经快讯"),
+                            "title": title,
+                            "url": item.get("url", ""),
+                        })
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 东财资讯兜底 {clean_code} 失败: {e}")
+        return news_list[:limit]
+
     def fetch_today_stock_news(self, symbol: str, name: str, limit: int = 5) -> List[Dict[str, str]]:
         clean_code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
-        news_list: List[Dict[str, str]] = []
-        url = (
-            "https://search-api-web.eastmoney.com/search/jsonp?cb=cb&param="
-            "%7B%22uid%22%3A%22%22%2C%22keyword%22%3A%22" + clean_code + "%20" + name +
-            "%22%2C%22type%22%3A%5B%22cmsArticleWebOld%22%5D%2C%22pageIndex%22%3A1%2C%22pageSize%22%3A"
-            + str(limit) + "%7D"
-        )
-        try:
-            r = _retry_get(url, timeout=6)
-            if r:
-                raw_text = r.text
-                if "cb(" in raw_text:
-                    json_str = raw_text[raw_text.find("cb(") + 3: raw_text.rfind(")")]
-                    import json
-                    data = json.loads(json_str)
-                    items = data.get("result", {}).get("cmsArticleWebOld", [])
-                    for item in items:
-                        title = item.get("title", "").replace("<em>", "").replace("</em>", "")
-                        if title:
-                            news_list.append({
-                                "time": item.get("showTime", ""),
-                                "media": item.get("mediaName", "财经快讯"),
-                                "title": title,
-                                "url": item.get("url", ""),
-                            })
-        except Exception as e:  # noqa: BLE001
-            print(f"⚠️ 拉取个股 {clean_code} 舆情新闻失败: {e}")
+        # 主源：新浪（个股新闻+行业消息）；兜底：东财
+        news_list = self._sina_stock_news(clean_code, name, limit)
+        if not news_list:
+            news_list = self._eastmoney_stock_news(clean_code, name, limit)
 
         if not news_list:
             news_list.append({
@@ -258,6 +316,28 @@ class CNStockDataFetcher:
             })
         return news_list[:limit]
 
+    def fetch_industry_news(self, symbol: str, name: str, limit: int = 3,
+                            news: List[Dict[str, str]] = None) -> List[Dict[str, str]]:
+        """行业/板块消息面：从个股资讯页里挑出含行业/板块关键词的资讯，作为行业消息代理。
+        没有独立行情源时能真实反映所处赛道动态（如『险资入市』『科技与红利』『板块轮动』）。
+        传入 news 可复用已抓取的资讯列表，避免重复请求。"""
+        news = news or self._sina_stock_news(
+            symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip(), name, limit=12)
+        kw = ("行业", "板块", "赛道", "概念", "指数", "ETF", "资金", "轮动", "红利", "科技",
+              "AI", "芯片", "医药", "白酒", "新能源", "券商", "银行", "地产", "有色", "军工",
+              "半导体", "光伏", "储能", "消费", "险资", "机构", "长钱")
+        picked = []
+        for n in news:
+            t = n.get("title", "")
+            if any(k in t for k in kw) and t not in [p["title"] for p in picked]:
+                picked.append(n)
+            if len(picked) >= limit:
+                break
+        if not picked and news:
+            # 没命中行业关键词时，退而取与个股相关度较低的前若干条宏观/市场资讯
+            picked = news[:limit]
+        return picked
+
     # ───────────────────────── 6. 一次性快照 ─────────────────────────
     def fetch_full_snapshot(self, symbol: str, name: str, news_limit: int = 3) -> Dict[str, object]:
         key = f"{symbol}"
@@ -266,7 +346,8 @@ class CNStockDataFetcher:
         financials = self.fetch_stock_financials(symbol)
         dividend = self.fetch_dividend_yield(symbol)
         capital = self.fetch_capital_flow(symbol)
-        news = self.fetch_today_stock_news(symbol, name, limit=news_limit)
+        news = self.fetch_today_stock_news(symbol, name, limit=max(news_limit, 5))
+        industry_news = self.fetch_industry_news(symbol, name, limit=3, news=news)
         snap = {
             "code": symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip(),
             "name": name,
@@ -274,6 +355,7 @@ class CNStockDataFetcher:
             "dividend_yield": dividend,
             "capital_flow": capital,
             "news": news,
+            "industry_news": industry_news,   # 行业/板块消息面（供议会多空解读）
         }
         self._cache[key] = snap
         return snap

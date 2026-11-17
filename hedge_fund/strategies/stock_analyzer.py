@@ -218,28 +218,42 @@ def summarize_for_feishu(analysis_text: str, limit: int = 300) -> str:
 # ──────────────────────────────────────────────────────────────
 # 4. 企业微信分段推送工具（防封锁）
 # ──────────────────────────────────────────────────────────────
-def split_wechat_message(text: str, max_len: int = 1800) -> list:
+def split_wechat_message(text: str, max_len: int = 1800, header: str = "") -> list:
     """
     把超长消息按『自然边界』拆分为多条，避免企业微信单条过长被风控封锁。
     优先按换行/分隔符切，其次硬切；返回若干条字符串。
+
+    header：可选抬头（如『【3/5】贵州茅台(600519)』）。提供时拆出的【每一段】都会
+            前置该抬头并标注段号，避免多只个股拆段后消息混淆、看不出属于哪只票。
     """
     if not text:
         return []
+    # 若传了抬头，正文可用长度要扣掉抬头与段号占位，确保拼接后仍不超长
+    body_max = max_len
+    if header:
+        body_max = max(200, max_len - len(header) - 16)
+
     chunks = []
     cur = ""
     for line in text.split("\n"):
-        if len(cur) + len(line) + 1 <= max_len:
+        if len(cur) + len(line) + 1 <= body_max:
             cur = (cur + "\n" + line).strip() if cur else line
         else:
             if cur:
                 chunks.append(cur)
             # 单行超长则硬切
-            while len(line) > max_len:
-                chunks.append(line[:max_len])
-                line = line[max_len:]
+            while len(line) > body_max:
+                chunks.append(line[:body_max])
+                line = line[body_max:]
             cur = line
     if cur:
         chunks.append(cur)
+
+    if header and len(chunks) > 1:
+        total = len(chunks)
+        return [f"{header}（{i}/{total}）\n{p}" for i, p in enumerate(chunks, 1)]
+    if header:
+        return [f"{header}\n{chunks[0]}"]
     return chunks
 
 

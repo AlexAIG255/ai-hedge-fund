@@ -131,16 +131,22 @@ def fetch_market_index() -> dict:
 # 1. 论据生成（LLM 优先 + 模板降级）
 # ==========================================================
 _ROLE_SYSTEM = {
-    "bull": "你是A股『看多操盘手』，只负责把【做多/买入】的逻辑讲到极致：从基本面改善、"
-            "估值修复、资金流入、催化剂、技术面右侧等角度全力论证为何该买/持有。克制在120字内，不要寒暄。",
-    "bear": "你是A股『看空操盘手』，只负责把【做空/规避/卖出】的逻辑讲到极致：从盈利恶化、估值过高、"
-            "主力出货、利好兑现、技术破位等角度全力论证为何该卖/观望/减仓。克制在120字内，不要寒暄。",
+    "bull": "你是A股『看多操盘手』，只负责把【做多/买入】的逻辑讲到极致。必须结合【个股新闻】与"
+            "【行业消息】里对这只票有利的内容做多论据（如融资买入增加、板块景气、资金流入、政策催化），"
+            "再叠加基本面改善、估值修复、技术面右侧等，全力论证为何该买/持有。"
+            "要求：明确引用至少一条该股的新闻/行业消息要点，不要空谈、不要寒暄，克制在130字内。",
+    "bear": "你是A股『看空操盘手』，只负责把【做空/规避/卖出】的逻辑讲到极致。必须结合【个股新闻】与"
+            "【行业消息】里对这只票不利的内容做空论据（如股价重挫、资金流出、板块转弱、利好兑现、监管风险），"
+            "再叠加盈利恶化、估值过高、主力出货、技术破位等，全力论证为何该卖/观望/减仓。"
+            "要求：明确引用至少一条该股的新闻/行业消息要点，不要空谈、不要寒暄，克制在130字内。",
     "observer": "你是A股『大市观察员』，不站队，只客观描述大盘/板块/系统性背景与风险偏好，"
-               "给操盘手提供战场环境。克制在100字内，不要给出买卖指令。",
-    "rebuttal_bull": "你是看多操盘手。你刚听到了看空操盘手与大盘观察员的反对意见，请【正面回应】"
-                     "他们的核心质疑（估值/盈利/大盘），说明为何仍看多或做出何种让步。克制在100字内。",
-    "rebuttal_bear": "你是看空操盘手。你刚听到了看多操盘手与大盘观察员的反驳，请【正面回应】"
-                     "他们的核心论据（改善/资金/催化），说明为何仍看空或做出何种让步。克制在100字内。",
+                "并可结合该股所处【行业消息】点出赛道环境，给操盘手提供战场环境。克制在100字内，不要给出买卖指令。",
+    "rebuttal_bull": "你是看多操盘手。你刚听到看空操盘手与大市观察员的反对意见，请【正面回应】"
+                     "他们的核心质疑（估值/盈利/大盘/不利消息），并结合个股新闻或行业消息说明为何仍看多"
+                     "或做出何种让步。克制在100字内。",
+    "rebuttal_bear": "你是看空操盘手。你刚听到看多操盘手与大市观察员的反驳，请【正面回应】"
+                     "他们的核心论据（改善/资金/催化/利好消息），并结合个股新闻或行业消息说明为何仍看空"
+                     "或做出何种让步。克制在100字内。",
     "risk": "你是A股『风险风控官』，是最终决策者。你已看到看多、看空、大市观察员三方观点及硬性风控数据。"
            "请输出最终风控裁决的【裁决理由】（为何放行/否决/减仓），强调纪律与仓位约束。克制在130字内。",
 }
@@ -153,11 +159,37 @@ def _llm_view(role: str, user: str) -> str:
                         timeout=_COUNCIL_TIMEOUT).strip().replace("```", "").strip()
 
 
+def _news_tone(title: str) -> str:
+    """给单条资讯打情绪标签（利好/利空/中性），供多空双方各自引用。"""
+    bear_kw = ("跌", "重挫", "下跌", "流出", "抛", "减持", "亏损", "下滑", "下降", "风险",
+               "监管", "处罚", "问询", "退市", "爆雷", "承压", "新低", "弱势", "套现", "承压")
+    bull_kw = ("涨", "买入", "增持", "流入", "新高", "突破", "增长", "超预期", "中标", "政策",
+               "扶持", "景气", "回暖", "修复", "利好", "获批", "签约", "新高", "独吸")
+    t = str(title)
+    b = sum(1 for k in bear_kw if k in t)
+    g = sum(1 for k in bull_kw if k in t)
+    if b > g:
+        return "偏空"
+    if g > b:
+        return "偏多"
+    return "中性"
+
+
+def _news_lines(news: list, limit: int = 4) -> str:
+    if not news:
+        return "  （暂无相关资讯）"
+    out = []
+    for n in news[:limit]:
+        title = n.get("title", "") if isinstance(n, dict) else str(n)
+        out.append(f"  · [{_news_tone(title)}] {title[:60]}")
+    return "\n".join(out)
+
+
 def _data_block(snap: dict, holding: dict, market: dict, strategy: str) -> str:
     fin = (snap.get("financials", {}) or {}) if snap else {}
     fin_str = "、".join(f"{k}:{v}" for k, v in fin.items()) or "暂无"
     news = (snap.get("news", []) or []) if snap else []
-    news_str = "；".join(n.get("title", "") for n in news[:3]) or "暂无重大舆情"
+    ind_news = (snap.get("industry_news", []) or []) if snap else []
     cost = float(holding.get("cost_price", 0)) if holding else 0.0
     pnl = float(holding.get("pnl_pct", 0)) if holding else None
     hline = f"【持仓】成本{cost}元 盈亏{pnl:+.2f}%" if (holding and cost) else "【候选】拟新开仓"
@@ -166,27 +198,54 @@ def _data_block(snap: dict, holding: dict, market: dict, strategy: str) -> str:
         f"{hline}\n"
         f"财报估值：{fin_str}\n"
         f"股息率：{snap.get('dividend_yield','暂无')} 主力净流入：{snap.get('capital_flow','暂无')}\n"
-        f"当日舆情：{news_str}\n"
+        f"【个股新闻面】（每条已标情绪，务必据此做多空解读）：\n{_news_lines(news, 4)}\n"
+        f"【行业/板块消息面】（赛道环境，供判断板块共振）：\n{_news_lines(ind_news, 3)}\n"
         f"大盘背景：{market.get('summary','-')}（{market.get('stance','-')}）"
     )
 
 
-# ── 模板论据（无 LLM 时）─────────────────────────────────────────────────────
+# ── 模板论据（无 LLM 时，仍消费个股新闻+行业消息做差异化分析）──────────────────
+def _pick_news(news: list, tone: str, limit: int = 1) -> str:
+    """挑一条指定情绪的资讯标题（多空各自取对自己有利的），返回短句。"""
+    if not news:
+        return ""
+    for n in news:
+        title = n.get("title", "") if isinstance(n, dict) else str(n)
+        if _news_tone(title) == tone:
+            return title[:42]
+    # 没有明确倾向时取第一条，保证每只票论据都带自己的消息、不雷同
+    first = news[0]
+    title = first.get("title", "") if isinstance(first, dict) else str(first)
+    return title[:42]
+
+
 def _template_bull(snap, market, strategy) -> str:
-    fin = (snap.get("financials", {}) or {}) if snap else {}
+    snap = snap or {}
+    fin = snap.get("financials", {}) or {}
     net = fin.get("净利润同比", "-")
-    cap = snap.get("capital_flow", "暂无") if snap else "暂无"
-    up = ("净利润同比 " + str(net) + " 显示盈利向好") if (net not in ("-", "暂无") and not str(net).startswith("-")) else "盈利端暂无明确改善信号"
-    inflow = ("且主力资金呈净流入态势" if ("净流入" in str(cap) and "-" not in str(cap)) else "资金面暂无显著流入")
-    mkt = ("，叠加" + market.get("stance", "中性") + "的大盘环境") if market.get("stance") == "偏多" else ""
-    return f"看多论据：{up}{inflow}{mkt}；按「{strategy}」信号入选，存在右侧延续/估值修复空间，可逢低关注。"
+    cap = snap.get("capital_flow", "暂无")
+    news = snap.get("news", []) or []
+    ind = snap.get("industry_news", []) or []
+    up = ("净利润同比 " + str(net) + " 显示盈利向好") if (net not in ("-", "暂无") and not str(net).startswith("-")) else "基本面待改善"
+    inflow = ("且主力资金净流入" if ("净流入" in str(cap) and "-" not in str(cap)) else "资金面中性")
+    # 个股新闻面：引用对多头有利的资讯
+    npos = _pick_news(news, "偏多")
+    news_part = f"个股消息面『{npos}』构成催化，" if npos else "个股消息面暂无明确利多，"
+    # 行业消息面
+    ipos = _pick_news(ind, "偏多")
+    ind_part = f"行业面『{ipos}』显示赛道有共振机会，" if ipos else "行业面整体平淡，"
+    mkt = ("叠加大盘偏多" if market.get("stance") == "偏多" else "")
+    return f"看多论据：{up}{inflow}；{news_part}{ind_part}{mkt}按「{strategy}」信号入选，存在右侧延续空间，可逢低关注。"
 
 
 def _template_bear(snap, market, strategy) -> str:
-    fin = (snap.get("financials", {}) or {}) if snap else {}
+    snap = snap or {}
+    fin = snap.get("financials", {}) or {}
     net = fin.get("净利润同比", "-")
     pe = fin.get("市盈率(TTM)", "-")
-    cap = snap.get("capital_flow", "暂无") if snap else "暂无"
+    cap = snap.get("capital_flow", "暂无")
+    news = snap.get("news", []) or []
+    ind = snap.get("industry_news", []) or []
     warn = []
     if net not in ("-", "暂无") and str(net).startswith("-"):
         warn.append(f"净利润同比下滑({net})")
@@ -197,10 +256,14 @@ def _template_bear(snap, market, strategy) -> str:
         pass
     if "净流出" in str(cap) or str(cap).startswith("-"):
         warn.append("主力资金净流出")
-    if market.get("stance") == "偏空":
-        warn.append("大盘偏空压制风险偏好")
-    w = "、".join(warn) if warn else "暂无明显利空但需防追高与回撤"
-    return f"看空论据：{w}；动能策略波动大，若不及预期易触发止损，宜控仓或等回调确认。"
+    w = "、".join(warn) if warn else "基本面缺乏亮点"
+    # 个股新闻面：引用对空头不利的资讯
+    nneg = _pick_news(news, "偏空")
+    news_part = f"但个股消息面『{nneg}』提示下行风险，" if nneg else "个股消息面未见明显利空，"
+    ineg = _pick_news(ind, "偏空")
+    ind_part = f"行业面『{ineg}』显示赛道承压，" if ineg else "行业面缺乏强催化，"
+    mkt = "叠加大盘偏空压制风险偏好，" if market.get("stance") == "偏空" else ""
+    return f"看空论据：{w}；{news_part}{ind_part}{mkt}动能策略波动大，若不及预期易触发止损，宜控仓或等回调确认。"
 
 
 def _template_observer(market) -> str:
@@ -209,9 +272,16 @@ def _template_observer(market) -> str:
 
 
 def _template_rebuttal(role, bull, bear, observer) -> str:
+    """模板交锋：提炼对方核心论点（而非硬切字符串），保证读到的是完整语义。"""
+    def gist(text: str, keywords=("风险", "利空", "承压", "改善", "催化", "资金", "估值", "偏空", "消息面")) -> str:
+        # 按句号/分号取含关键词的短分句，拼成完整短语
+        segs = [s for s in str(text).replace("；", "。").split("。") if any(k in s for k in keywords)]
+        pick = (segs[0] if segs else str(text)).strip()
+        return pick[:26].rstrip("，,")
+
     if role == "bull":
-        return f"看多回应：承认{bear[:40]}…等风险确实存在，但认为当前核心矛盾在改善侧，愿以严格止损（破位即撤）控制下行。"
-    return f"看空回应：承认{bull[:40]}…等亮点，但认为已部分price-in/或持续性存疑，宁可错过也不追高，优先保本。"
+        return f"看多回应：对方提示『{gist(bear)}』等风险确实存在，但个股消息面与行业催化仍在改善侧，愿以严格止损（破位即撤）控制下行。"
+    return f"看空回应：对方强调『{gist(bull)}』等亮点，但利好或已部分price-in、持续性存疑，宁可错过也不追高，优先保本。"
 
 
 # ==========================================================
@@ -219,6 +289,7 @@ def _template_rebuttal(role, bull, bear, observer) -> str:
 # ==========================================================
 def _operator_conviction(snap: dict, direction: str) -> int:
     """0-100 的多/空信心分（规则，从数据推导）。bear 取反。"""
+    snap = snap or {}
     fin = (snap.get("financials", {}) or {}) if snap else {}
     net = fin.get("净利润同比", "-")
     pe = fin.get("市盈率(TTM)", "-")
@@ -245,6 +316,11 @@ def _operator_conviction(snap: dict, direction: str) -> int:
         score += 10
     elif "净流出" in str(cap) or str(cap).startswith("-"):
         score -= 10
+    # —— 新闻情绪（个股新闻 + 行业消息）——
+    all_news = list(snap.get("news", []) or []) + list(snap.get("industry_news", []) or [])
+    tones = [_news_tone(n.get("title", "") if isinstance(n, dict) else str(n)) for n in all_news]
+    score += sum(5 for t in tones if t == "偏多")
+    score -= sum(5 for t in tones if t == "偏空")
     score = max(0, min(100, score))
     return 100 - score if direction == "bear" else score
 

@@ -646,12 +646,13 @@ class EveningReviewAgent:
                 f"-----------------------------------",
             ]
 
-            for s in chunk:
+            for si, s in enumerate(chunk):
                 icon = "🔴" if s["ret_pct"] > 0 else ("🟢" if s["ret_pct"] < 0 else "⚪")
                 notice = " 🚨 **[今日触发离场，建议抛售]**" if s["just_closed_today"] else ""
+                seq = f"【{i + si + 1}/{len(summary_list)}】"  # 全局序号，避免拆段后个股混淆
 
                 line = (
-                    f"{icon} **{s['name']}** (`{s['code']}`){notice}\n"
+                    f"{seq}{icon} **{s['name']}** (`{s['code']}`){notice}\n"
                     f"• 策略: **{s['strategy']}** | 评级: **{s['strength']}**\n"
                     f"• 最新价: `{s['curr_price']:.2f}元` | 收益: `{s['ret_str']}`\n"
                     f"• 状态: **{s['status']}** | 持仓: `{s['days']}天`\n"
