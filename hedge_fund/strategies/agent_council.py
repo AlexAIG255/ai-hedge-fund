@@ -131,14 +131,16 @@ def fetch_market_index() -> dict:
 # 1. 论据生成（LLM 优先 + 模板降级）
 # ==========================================================
 _ROLE_SYSTEM = {
-    "bull": "你是A股『看多操盘手』，只负责把【做多/买入】的逻辑讲到极致。必须结合【个股新闻】与"
-            "【行业消息】里对这只票有利的内容做多论据（如融资买入增加、板块景气、资金流入、政策催化），"
-            "再叠加基本面改善、估值修复、技术面右侧等，全力论证为何该买/持有。"
-            "要求：明确引用至少一条该股的新闻/行业消息要点，不要空谈、不要寒暄，克制在130字内。",
-    "bear": "你是A股『看空操盘手』，只负责把【做空/规避/卖出】的逻辑讲到极致。必须结合【个股新闻】与"
-            "【行业消息】里对这只票不利的内容做空论据（如股价重挫、资金流出、板块转弱、利好兑现、监管风险），"
-            "再叠加盈利恶化、估值过高、主力出货、技术破位等，全力论证为何该卖/观望/减仓。"
-            "要求：明确引用至少一条该股的新闻/行业消息要点，不要空谈、不要寒暄，克制在130字内。",
+    "bull": "你是A股『看多操盘手』，只负责把【做多/买入】的逻辑讲到极致。数据已对全网资讯做过"
+            "去广告、跨源去重、相关性甄别，并分成【🟢利多要点】【🔴利空要点】【🏭行业赛道】。"
+            "你必须从【利多要点】与【行业赛道】里引用至少一条该股已甄别的利好做多论据"
+            "（如融资买入增加、业绩超预期、板块景气、政策催化），再叠加基本面改善、估值修复、技术面右侧。"
+            "要求：明确引用甄别后的要点原文，不空谈、不寒暄、不臆造消息，克制在130字内。",
+    "bear": "你是A股『看空操盘手』，只负责把【做空/规避/卖出】的逻辑讲到极致。数据已对全网资讯做过"
+            "去广告、跨源去重、相关性甄别，并分成【🟢利多要点】【🔴利空要点】【🏭行业赛道】。"
+            "你必须从【利空要点】里引用至少一条该股已甄别的利空做空论据"
+            "（如股价重挫、资金流出、业绩下滑、板块转弱、监管风险），再叠加盈利恶化、估值过高、主力出货、技术破位。"
+            "要求：明确引用甄别后的要点原文，不空谈、不寒暄、不臆造消息，克制在130字内。",
     "observer": "你是A股『大市观察员』，不站队，只客观描述大盘/板块/系统性背景与风险偏好，"
                 "并可结合该股所处【行业消息】点出赛道环境，给操盘手提供战场环境。克制在100字内，不要给出买卖指令。",
     "rebuttal_bull": "你是看多操盘手。你刚听到看空操盘手与大市观察员的反对意见，请【正面回应】"
@@ -185,21 +187,49 @@ def _news_lines(news: list, limit: int = 4) -> str:
     return "\n".join(out)
 
 
+def _digest_points(snap: dict, key: str, limit: int = 3) -> list:
+    """从甄别摘要中取指定分类要点；无 digest（旧快照）时返回空列表走兼容分支。"""
+    digest = (snap.get("news_digest") or {}) if snap else {}
+    pts = digest.get(key, []) or []
+    return [str(p) for p in pts[:limit] if p]
+
+
 def _data_block(snap: dict, holding: dict, market: dict, strategy: str) -> str:
     fin = (snap.get("financials", {}) or {}) if snap else {}
     fin_str = "、".join(f"{k}:{v}" for k, v in fin.items()) or "暂无"
     news = (snap.get("news", []) or []) if snap else []
     ind_news = (snap.get("industry_news", []) or []) if snap else []
+    digest = (snap.get("news_digest") or {}) if snap else {}
     cost = float(holding.get("cost_price", 0)) if holding else 0.0
     pnl = float(holding.get("pnl_pct", 0)) if holding else None
     hline = f"【持仓】成本{cost}元 盈亏{pnl:+.2f}%" if (holding and cost) else "【候选】拟新开仓"
+
+    # 消息面：优先用【甄别后摘要】——已过滤广告/去重/相关性筛查，多空基于干净要点交锋
+    if digest:
+        st = digest.get("stats", {}) or {}
+        bull_pts = digest.get("bull_points", []) or []
+        bear_pts = digest.get("bear_points", []) or []
+        ind_pts = digest.get("industry_points", []) or []
+        news_block = (
+            f"【消息面·甄别后摘要】（已去广告/去重/相关性筛查，原始{st.get('raw', 0)}条→保留{st.get('kept', 0)}条，"
+            f"来源:{'/'.join(st.get('sources', [])) or '无'}）\n"
+            f"  综述：{digest.get('summary', '-')}\n"
+            f"  🟢利多要点：{'；'.join(bull_pts[:3]) or '无明确利多'}\n"
+            f"  🔴利空要点：{'；'.join(bear_pts[:3]) or '无明确利空'}\n"
+            f"  🏭行业赛道：{'；'.join(ind_pts[:3]) or '无明确行业催化'}\n"
+        )
+    else:
+        # 兼容旧快照（无甄别层）：原始标题+情绪标注
+        news_block = (
+            f"【个股新闻面】（每条已标情绪，务必据此做多空解读）：\n{_news_lines(news, 4)}\n"
+            f"【行业/板块消息面】（赛道环境，供判断板块共振）：\n{_news_lines(ind_news, 3)}\n"
+        )
     return (
         f"标的：{snap.get('name')}({snap.get('code')}) 现价约{snap.get('price')}元 策略:{strategy}\n"
         f"{hline}\n"
         f"财报估值：{fin_str}\n"
         f"股息率：{snap.get('dividend_yield','暂无')} 主力净流入：{snap.get('capital_flow','暂无')}\n"
-        f"【个股新闻面】（每条已标情绪，务必据此做多空解读）：\n{_news_lines(news, 4)}\n"
-        f"【行业/板块消息面】（赛道环境，供判断板块共振）：\n{_news_lines(ind_news, 3)}\n"
+        f"{news_block}"
         f"大盘背景：{market.get('summary','-')}（{market.get('stance','-')}）"
     )
 
@@ -224,16 +254,21 @@ def _template_bull(snap, market, strategy) -> str:
     fin = snap.get("financials", {}) or {}
     net = fin.get("净利润同比", "-")
     cap = snap.get("capital_flow", "暂无")
-    news = snap.get("news", []) or []
-    ind = snap.get("industry_news", []) or []
     up = ("净利润同比 " + str(net) + " 显示盈利向好") if (net not in ("-", "暂无") and not str(net).startswith("-")) else "基本面待改善"
     inflow = ("且主力资金净流入" if ("净流入" in str(cap) and "-" not in str(cap)) else "资金面中性")
-    # 个股新闻面：引用对多头有利的资讯
-    npos = _pick_news(news, "偏多")
-    news_part = f"个股消息面『{npos}』构成催化，" if npos else "个股消息面暂无明确利多，"
-    # 行业消息面
-    ipos = _pick_news(ind, "偏多")
-    ind_part = f"行业面『{ipos}』显示赛道有共振机会，" if ipos else "行业面整体平淡，"
+    # 消息面：优先引用甄别后的利多要点/行业赛道（干净、已筛查）
+    bull_pts = _digest_points(snap, "bull_points", 2)
+    ind_pts = _digest_points(snap, "industry_points", 1)
+    if bull_pts:
+        news_part = f"甄别后利多『{bull_pts[0][:42]}』构成催化，"
+    else:
+        npos = _pick_news(snap.get("news", []) or [], "偏多")
+        news_part = f"个股消息面『{npos}』构成催化，" if npos else "个股消息面暂无明确利多，"
+    if ind_pts:
+        ind_part = f"行业赛道『{ind_pts[0][:36]}』提供共振机会，"
+    else:
+        ipos = _pick_news(snap.get("industry_news", []) or [], "偏多")
+        ind_part = f"行业面『{ipos}』显示赛道有共振机会，" if ipos else "行业面整体平淡，"
     mkt = ("叠加大盘偏多" if market.get("stance") == "偏多" else "")
     return f"看多论据：{up}{inflow}；{news_part}{ind_part}{mkt}按「{strategy}」信号入选，存在右侧延续空间，可逢低关注。"
 
@@ -244,8 +279,6 @@ def _template_bear(snap, market, strategy) -> str:
     net = fin.get("净利润同比", "-")
     pe = fin.get("市盈率(TTM)", "-")
     cap = snap.get("capital_flow", "暂无")
-    news = snap.get("news", []) or []
-    ind = snap.get("industry_news", []) or []
     warn = []
     if net not in ("-", "暂无") and str(net).startswith("-"):
         warn.append(f"净利润同比下滑({net})")
@@ -257,11 +290,19 @@ def _template_bear(snap, market, strategy) -> str:
     if "净流出" in str(cap) or str(cap).startswith("-"):
         warn.append("主力资金净流出")
     w = "、".join(warn) if warn else "基本面缺乏亮点"
-    # 个股新闻面：引用对空头不利的资讯
-    nneg = _pick_news(news, "偏空")
-    news_part = f"但个股消息面『{nneg}』提示下行风险，" if nneg else "个股消息面未见明显利空，"
-    ineg = _pick_news(ind, "偏空")
-    ind_part = f"行业面『{ineg}』显示赛道承压，" if ineg else "行业面缺乏强催化，"
+    # 消息面：优先引用甄别后的利空要点/行业承压（干净、已筛查）
+    bear_pts = _digest_points(snap, "bear_points", 2)
+    ind_pts = _digest_points(snap, "industry_points", 1)
+    if bear_pts:
+        news_part = f"但甄别后利空『{bear_pts[0][:42]}』提示下行风险，"
+    else:
+        nneg = _pick_news(snap.get("news", []) or [], "偏空")
+        news_part = f"但个股消息面『{nneg}』提示下行风险，" if nneg else "个股消息面未见明显利空，"
+    if ind_pts:
+        ind_part = f"行业赛道『{ind_pts[0][:36]}』需警惕赛道转弱，"
+    else:
+        ineg = _pick_news(snap.get("industry_news", []) or [], "偏空")
+        ind_part = f"行业面『{ineg}』显示赛道承压，" if ineg else "行业面缺乏强催化，"
     mkt = "叠加大盘偏空压制风险偏好，" if market.get("stance") == "偏空" else ""
     return f"看空论据：{w}；{news_part}{ind_part}{mkt}动能策略波动大，若不及预期易触发止损，宜控仓或等回调确认。"
 
@@ -316,11 +357,25 @@ def _operator_conviction(snap: dict, direction: str) -> int:
         score += 10
     elif "净流出" in str(cap) or str(cap).startswith("-"):
         score -= 10
-    # —— 新闻情绪（个股新闻 + 行业消息）——
-    all_news = list(snap.get("news", []) or []) + list(snap.get("industry_news", []) or [])
-    tones = [_news_tone(n.get("title", "") if isinstance(n, dict) else str(n)) for n in all_news]
-    score += sum(5 for t in tones if t == "偏多")
-    score -= sum(5 for t in tones if t == "偏空")
+    # —— 新闻情绪（优先用甄别后分类要点，避免广告/无关噪音计分）——
+    digest = snap.get("news_digest") or {}
+    if digest:
+        n_pos = len(digest.get("bull_points", []) or [])
+        n_neg = len(digest.get("bear_points", []) or [])
+        # 行业面也计入（赛道共振/承压）
+        for t in (digest.get("industry_points", []) or []):
+            tone = _news_tone(str(t))
+            if tone == "偏多":
+                n_pos += 1
+            elif tone == "偏空":
+                n_neg += 1
+        score += n_pos * 5
+        score -= n_neg * 5
+    else:
+        all_news = list(snap.get("news", []) or []) + list(snap.get("industry_news", []) or [])
+        tones = [_news_tone(n.get("title", "") if isinstance(n, dict) else str(n)) for n in all_news]
+        score += sum(6 for t in tones if t == "偏多")
+        score -= sum(6 for t in tones if t == "偏空")
     score = max(0, min(100, score))
     return 100 - score if direction == "bear" else score
 
