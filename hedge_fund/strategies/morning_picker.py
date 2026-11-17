@@ -88,6 +88,9 @@ except ImportError:
         _COUNCIL_ENABLED = False
         _council_brief = None
 
+# 📰 新闻-股价归因（布林线+甄别消息+相对大盘），默认开；ATTRIBUTION_ENABLED=false 可关
+ATTRIBUTION_ENABLED = os.environ.get("ATTRIBUTION_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # 🛡️ 稳健模式需用到资金流 / 流通市值 实接口
 try:
     from data.cn_stock_data import CNStockDataFetcher as _CNStockDataFetcher
@@ -1034,6 +1037,14 @@ class MorningStockPickerAgent:
                     chunk += f"-----------------------------------\n{_council_brief(rep)}\n"
                 except Exception as e:
                     print(f"⚠️ 议会分析 {i.get('code')} 失败，跳过: {e}")
+            # 📰 新闻-股价归因：判断涨跌是消息驱动还是大市波动（布林线+甄别消息+相对大盘超额）
+            _snap = i.get("_snap") or {}
+            attrib = (_snap.get("attribution") or "").strip() if ATTRIBUTION_ENABLED else ""
+            if attrib:
+                # 限长，避免整条消息超 1800 字被拆段
+                if len(attrib) > 220:
+                    attrib = attrib[:220].rstrip() + "…"
+                chunk += f"-----------------------------------\n{attrib}\n"
             # 📊 多维分析（财报/盘面/资金面/消息面）
             chunk += f"-----------------------------------\n📊 **多维分析（财报/盘面/资金面/消息面）**:\n{analysis_text}"
             message_chunks.append(chunk)

@@ -15,6 +15,7 @@ hedge_fund/data/cn_stock_data.py
 """
 
 import datetime
+import os
 import re
 import time
 from typing import Dict, List, Optional, Tuple
@@ -49,6 +50,33 @@ def _retry_get(url: str, params: Optional[dict] = None, timeout: int = 6, tries:
 def _secid(code: str) -> str:
     code = code.replace("sh", "").replace("sz", "").replace("bj", "").strip()
     return f"1.{code}" if code.startswith("60") else f"0.{code}"
+
+
+# 大盘涨跌（只读复用现有腾讯 gtimg 节点的公开数据，不修改该节点任何逻辑）
+# 带进程级缓存，5 分钟内复用，避免每个标的都重复请求大盘。
+_MARKET_CACHE: Dict[str, object] = {"ts": 0.0, "pct": 0.0, "summary": ""}
+
+
+def get_market_snapshot() -> dict:
+    """返回大盘涨跌幅（上证为主）与摘要，供新闻-股价归因判断『大市波动』。
+    仅读取现有行情节点的公开指数数据，不改动三个受保护价格节点。"""
+    now = time.time()
+    if _MARKET_CACHE.get("summary") and now - float(_MARKET_CACHE.get("ts", 0)) < 300:
+        return {"pct": _MARKET_CACHE["pct"], "summary": _MARKET_CACHE["summary"]}
+    pct, summary = 0.0, ""
+    try:
+        r = _retry_get("http://qt.gtimg.cn/q=sh000001", timeout=5, tries=1)
+        if r and '="' in r.text:
+            f = r.text.split('="')[1].split("~")
+            if len(f) > 33:
+                pct = float(f[32].replace("%", "") or 0)
+                summary = f"{f[1]} {pct:+.2f}%"
+    except Exception as e:  # noqa: BLE001
+        print(f"⚠️ 大盘指数读取失败，按中性处理: {str(e)[:50]}")
+    if not summary:
+        summary = "大盘数据暂无（按中性处理）"
+    _MARKET_CACHE.update({"ts": now, "pct": pct, "summary": summary})
+    return {"pct": pct, "summary": summary}
 
 
 class CNStockDataFetcher:
@@ -202,6 +230,65 @@ class CNStockDataFetcher:
         if q and isinstance(q.get("f62"), (int, float)):
             return float(q["f62"])
         return None
+
+    # ───────────────────────── 2.5 历史K线（布林线/技术指标用，独立节点） ─────────────────────────
+    def fetch_kline(self, symbol: str, days: int = 30) -> List[Dict[str, float]]:
+        """取近 N 日日K（前复权），供布林线/MA/量能计算。
+        这是【独立的行情补充节点】，与三个受保护的价格节点无关，不修改它们。
+        主源：东财 push2his；兜底：新浪 CN_MarketDataService。全失败返回 []。"""
+        clean = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
+        prefix = self._market_prefix(clean)
+        secid = f"1.{clean}" if prefix == "sh" else (f"0.{clean}" if prefix == "sz" else f"0.{clean}")
+        bars: List[Dict[str, float]] = []
+
+        # 主源：东财 push2his（fields2: 日期,开,收,高,低,成交量,成交额,振幅...）
+        try:
+            u = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
+            p = {
+                "secid": secid,
+                "fields1": "f1,f2,f3,f4,f5,f6",
+                "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+                "klt": "101", "fqt": "1", "end": "20500101", "lmt": str(max(days, 25)),
+            }
+            r = _retry_get(u, params=p, timeout=7, tries=2)
+            if r:
+                klines = ((r.json().get("data") or {}).get("klines") or [])
+                for line in klines:
+                    f = line.split(",")
+                    if len(f) < 6:
+                        continue
+                    try:
+                        bars.append({
+                            "date": f[0], "open": float(f[1]), "close": float(f[2]),
+                            "high": float(f[3]), "low": float(f[4]), "volume": float(f[5]),
+                        })
+                    except (ValueError, IndexError):
+                        continue
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 东财K线 {clean} 失败: {str(e)[:50]}")
+
+        # 兜底：新浪日K
+        if not bars:
+            try:
+                u2 = "https://quotes.sina.cn/cn/api/json_v2.php/CN_MarketDataService.getKLineData"
+                r2 = _retry_get(u2, params={"symbol": f"{prefix}{clean}", "scale": 240,
+                                            "ma": "no", "datalen": max(days, 25)}, timeout=7, tries=2)
+                if r2:
+                    for it in (r2.json() or []):
+                        try:
+                            bars.append({
+                                "date": str(it.get("day", ""))[:10],
+                                "open": float(it["open"]), "close": float(it["close"]),
+                                "high": float(it["high"]), "low": float(it["low"]),
+                                "volume": float(it.get("volume", 0) or 0),
+                            })
+                        except (ValueError, KeyError, TypeError):
+                            continue
+            except Exception as e:  # noqa: BLE001
+                print(f"⚠️ 新浪K线兜底 {clean} 失败: {str(e)[:50]}")
+
+        bars.sort(key=lambda x: x["date"])
+        return bars[-days:]
 
     # ───────────────────────── 3. 流通市值（小盘过滤） ─────────────────────────
     def fetch_float_market_cap(self, symbol: str) -> Optional[float]:
@@ -606,6 +693,13 @@ class CNStockDataFetcher:
         # 行业消息同样做情绪标注，供议会识别赛道共振
         for n in industry_news:
             n["tone"] = self._news_tone(n.get("title", ""))
+        # 历史K线（布林线/技术指标用，独立节点；可用开关关闭省请求）
+        kline: List[Dict[str, float]] = []
+        if os.environ.get("ENABLE_KLINE_TECHNICALS", "true").lower() in ("true", "1", "yes"):
+            try:
+                kline = self.fetch_kline(symbol, days=30)
+            except Exception as e:  # noqa: BLE001
+                print(f"⚠️ K线获取 {name}({clean_code}) 跳过: {str(e)[:50]}")
         snap = {
             "code": clean_code,
             "name": name,
@@ -615,6 +709,7 @@ class CNStockDataFetcher:
             "news": news,
             "news_digest": news_digest,        # 甄别后结构化摘要（供议会多空交锋）
             "industry_news": industry_news,   # 行业/板块消息面（供议会多空解读）
+            "kline": kline,                   # 历史日K（布林线/技术指标用）
         }
         self._cache[key] = snap
         return snap

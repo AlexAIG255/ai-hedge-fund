@@ -118,6 +118,8 @@ DIFY_ENABLED = bool(DIFY_API_KEY) and os.environ.get("DIFY_ENABLED", "false").lo
 DIFY_USER = os.environ.get("DIFY_USER", "hedge-fund-bot")
 # 持仓分析附多空议会（默认开；关闭则只给单边操作建议，省一次行情/LLM）
 HOLDING_COUNCIL = os.environ.get("HOLDING_COUNCIL", "true").lower() in ("true", "1", "yes")
+# 📰 新闻-股价归因（布林线+甄别消息+相对大盘），默认开
+ATTRIBUTION_ENABLED = os.environ.get("ATTRIBUTION_ENABLED", "true").lower() in ("true", "1", "yes")
 
 # 🔧 持仓做T / 风控参数（环境变量可调，便于按你的风险偏好调参，无需改代码）
 #   HOLDING_STOP_LOSS_RATIO  止损线（相对成本），默认 0.95（成本×0.95 = -5% 离场）
@@ -547,6 +549,8 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
         "capital_flow": snap.get("capital_flow", "暂无"),
         "risk_hint": build_risk_hint(snap, "") if build_risk_hint else "",
         "news": [n.get("title", "") for n in (snap.get("news") or [])][:3],
+        "news_attribution": (snap.get("attribution") or "").strip() if ATTRIBUTION_ENABLED else "",
+        "technicals": snap.get("technicals", {}) or {},
         "council": council_text,
         **decision,
     }
@@ -587,6 +591,12 @@ def build_daily_summary(results: List[Dict]) -> str:
             f"• 点评：{r['comment']}\n"
             f"• 舆情：{('；'.join(r['news']) if r['news'] else '暂无重大舆情')}"
         )
+        # 📰 消息-股价归因（布林线+甄别消息+相对大盘），限长避免拆段
+        if r.get("news_attribution"):
+            _na = r["news_attribution"]
+            if len(_na) > 220:
+                _na = _na[:220].rstrip() + "…"
+            lines.append(f"• {_na}")
         if r.get("council"):
             lines.append(r["council"])
         lines.append("-----------------------------------")

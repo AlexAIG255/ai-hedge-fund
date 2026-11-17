@@ -14,6 +14,7 @@
 """
 
 import os
+import re
 import sys
 import time
 
@@ -36,12 +37,19 @@ _ensure_repo_root_on_path()
 
 # 🔧 数据源（多源兜底导入，确保 CNStockDataFetcher 一定可用）
 try:
-    from hedge_fund.data.cn_stock_data import CNStockDataFetcher
+    from hedge_fund.data.cn_stock_data import CNStockDataFetcher, get_market_snapshot
 except ImportError:
     try:
-        from data.cn_stock_data import CNStockDataFetcher
+        from data.cn_stock_data import CNStockDataFetcher, get_market_snapshot
     except ImportError:
         CNStockDataFetcher = None
+        try:
+            from hedge_fund.data.cn_stock_data import get_market_snapshot
+        except ImportError:
+            try:
+                from data.cn_stock_data import get_market_snapshot
+            except ImportError:
+                get_market_snapshot = None
 
 # 🔧 LLM（可选，缺失/无 key 时降级为模板）
 try:
@@ -101,6 +109,22 @@ def enrich_stock(code: str, name: str, price: float = 0.0, news_limit: int = 3) 
         snap = _get_fetcher().fetch_full_snapshot(code, name, news_limit=news_limit)
         snap["price"] = price
         _sanitize_financials(snap.get("financials", {}))  # 🔧 过滤脏值，下游统一干净
+        # 📰 技术指标 + 新闻股价归因（布林线 + 甄别消息 + 相对大盘超额），失败不影响主流程
+        try:
+            tech = compute_technicals(snap.get("kline") or [], price)
+            snap["technicals"] = tech
+            mkt = None
+            if get_market_snapshot is not None:
+                try:
+                    mkt = get_market_snapshot()  # {'pct':..., 'summary':...}
+                except Exception:
+                    mkt = None
+            snap["attribution"] = attribute_news_impact(
+                snap.get("news_digest") or {}, tech, mkt, price)
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 技术/归因计算 {name}({code}) 跳过: {str(e)[:50]}")
+            snap.setdefault("technicals", {})
+            snap.setdefault("attribution", "")
         return snap
     except Exception as e:
         print(f"⚠️ 富集 {name}({code}) 数据失败: {e}")
@@ -108,8 +132,144 @@ def enrich_stock(code: str, name: str, price: float = 0.0, news_limit: int = 3) 
             "code": str(code).replace("sh", "").replace("sz", "").replace("bj", "").strip(),
             "name": name, "price": price,
             "financials": {}, "dividend_yield": "暂无",
-            "capital_flow": "暂无", "news": [],
+            "capital_flow": "暂无", "news": [], "technicals": {}, "attribution": "",
         }
+
+
+# ──────────────────────────────────────────────────────────────
+# 1.5 技术指标（布林线 BOLL 20,2 / MA20 / 位置），纯标准库计算
+# ──────────────────────────────────────────────────────────────
+def compute_technicals(kline: list, price: float = 0.0) -> dict:
+    """由日K算布林线与位置。返回空 dict 表示数据不足（调用方降级跳过）。
+    kline: [{'close':..., 'volume':...}, ...] 按日期升序。
+    """
+    if not kline or len(kline) < 10:
+        return {}
+    try:
+        closes = [float(b.get("close", 0)) for b in kline if float(b.get("close", 0)) > 0]
+    except (ValueError, TypeError, AttributeError):
+        return {}
+    if len(closes) < 10:
+        return {}
+    n = min(20, len(closes))
+    win = closes[-n:]
+    ma = sum(win) / n
+    var = sum((x - ma) ** 2 for x in win) / n
+    sd = var ** 0.5
+    upper, lower = ma + 2 * sd, ma - 2 * sd
+    cur = float(price) if price and price > 0 else closes[-1]
+    bandwidth = (upper - lower) / ma * 100 if ma else 0.0
+    if upper != lower:
+        pct_b = (cur - lower) / (upper - lower)  # 0=下轨, 1=上轨, 可越界
+    else:
+        pct_b = 0.5
+    if cur > upper:
+        pos = "突破上轨"
+    elif cur < lower:
+        pos = "跌破下轨"
+    elif pct_b >= 0.8:
+        pos = "接近上轨"
+    elif pct_b <= 0.2:
+        pos = "接近下轨"
+    elif pct_b >= 0.55:
+        pos = "中上轨"
+    else:
+        pos = "中下轨"
+    # 近5日/当日涨跌
+    day_chg = 0.0
+    if len(closes) >= 2 and closes[-2]:
+        day_chg = (closes[-1] - closes[-2]) / closes[-2] * 100
+    week_chg = 0.0
+    if len(closes) >= 6 and closes[-6]:
+        week_chg = (closes[-1] - closes[-6]) / closes[-6] * 100
+    # 量能：最新量 / 前5日均量
+    vol_ratio = 1.0
+    try:
+        vols = [float(b.get("volume", 0)) for b in kline[-6:]]
+        if len(vols) >= 6 and sum(vols[:5]) > 0:
+            vol_ratio = vols[-1] / (sum(vols[:5]) / 5)
+    except (ValueError, TypeError, AttributeError, ZeroDivisionError):
+        pass
+    return {
+        "ma20": round(ma, 3), "upper": round(upper, 3), "lower": round(lower, 3),
+        "pct_b": round(pct_b, 3), "bandwidth": round(bandwidth, 2), "position": pos,
+        "day_chg": round(day_chg, 2), "week_chg": round(week_chg, 2),
+        "vol_ratio": round(vol_ratio, 2),
+    }
+
+
+def attribute_news_impact(news_digest: dict, tech: dict, market: dict = None,
+                          price: float = 0.0) -> str:
+    """新闻-股价归因：判断当前涨跌主要是【消息驱动 / 大市波动 / 技术性波动 / 无明显催化】。
+    证据链 = 新闻情绪(已甄别) + 布林线位置 + 个股相对大盘的超额收益。
+    LLM 不可用时这套规则也能给出中肯归因，三个 agent 共用。
+    """
+    market = market or {}
+    if not tech:
+        digest = news_digest or {}
+        st = digest.get("stats", {}) or {}
+        nb = len(digest.get("bull_points", []) or [])
+        nr = len(digest.get("bear_points", []) or [])
+        if nb or nr:
+            tone = f"甄别后有 {nb} 条利多 / {nr} 条利空消息"
+            return f"📰 归因：{tone}，但缺历史K线无法校验价格位置，暂判【消息面偏{'多' if nb > nr else '空'}，待技术确认】。"
+        return "📰 归因：暂无有效消息与技术数据，维持中性观察。"
+
+    digest = news_digest or {}
+    nb = len(digest.get("bull_points", []) or [])
+    nr = len(digest.get("bear_points", []) or [])
+    day_chg = tech.get("day_chg", 0.0)
+    # 大盘当日涨跌：优先用结构化 pct 字段，其次从 summary 文本解析
+    mkt_chg = 0.0
+    if isinstance(market.get("pct"), (int, float)):
+        mkt_chg = float(market["pct"])
+    else:
+        m = re.search(r"([+-]?\d+\.?\d*)%", str(market.get("summary", "")))
+        if m:
+            try:
+                mkt_chg = float(m.group(1))
+            except ValueError:
+                mkt_chg = 0.0
+    excess = day_chg - mkt_chg  # 相对大盘超额
+    pos = tech.get("position", "")
+    pb = tech.get("pct_b", 0.5)
+    vr = tech.get("vol_ratio", 1.0)
+    pos_word = f"股价处布林{pos}（%B={pb:.2f}）"
+
+    # 判定主因
+    reasons = []
+    verdict = ""
+    up_move = day_chg > 0
+    news_bull = nb > nr
+    news_bear = nr > nb
+    # 只要有至少一条明确方向的甄别消息即纳入消息驱动判定（超额达标才成立）
+    strong_news = (nb + nr) >= 1
+
+    if strong_news and news_bull and excess >= 1.0:
+        verdict = "消息驱动（利多）"
+        lead = (digest.get("bull_points") or [""])[0]
+        reasons.append(f"个股涨 {day_chg:+.1f}% 跑赢大盘 {mkt_chg:+.1f}%（超额 {excess:+.1f}%），与甄别利多同向")
+        reasons.append(f"催化：{str(lead)[:34]}")
+    elif strong_news and news_bear and excess <= -1.0:
+        verdict = "消息驱动（利空）"
+        lead = (digest.get("bear_points") or [""])[0]
+        reasons.append(f"个股跌 {day_chg:+.1f}% 弱于大盘 {mkt_chg:+.1f}%（超额 {excess:+.1f}%），与甄别利空同向")
+        reasons.append(f"压制：{str(lead)[:34]}")
+    elif abs(excess) < 1.0 and abs(mkt_chg) >= 0.5:
+        verdict = "大市波动主导"
+        reasons.append(f"个股 {day_chg:+.1f}% 基本跟随大盘 {mkt_chg:+.1f}%（超额仅 {excess:+.1f}%），非个股独立行情")
+    elif pos in ("突破上轨", "跌破下轨", "接近上轨", "接近下轨") and not strong_news:
+        verdict = "技术性波动"
+        reasons.append(f"无明显个股消息，但{pos_word}、量比 {vr:.1f}，属技术位波动")
+    else:
+        verdict = "多因素交织" if (nb or nr) else "无明显催化"
+        if nb or nr:
+            reasons.append(f"甄别消息 {nb} 多/{nr} 空，涨跌 {day_chg:+.1f}% 与消息方向{'部分吻合' if (news_bull == up_move) else '不一致'}")
+        else:
+            reasons.append(f"无有效个股消息，{pos_word}，当日 {day_chg:+.1f}%")
+
+    reasons.append(f"技术面：{pos_word}，带宽 {tech.get('bandwidth', 0):.1f}%，近5日 {tech.get('week_chg', 0):+.1f}%")
+    return f"📰 归因【{verdict}】：" + "；".join(reasons) + "。"
 
 
 # ──────────────────────────────────────────────────────────────

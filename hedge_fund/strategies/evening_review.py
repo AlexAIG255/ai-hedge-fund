@@ -93,6 +93,9 @@ except ImportError:
 # 🏛️ 晚间议会开关（默认开启；关闭则逐只持仓不附议会结论，省 LLM）
 EVENING_COUNCIL = os.environ.get("EVENING_COUNCIL", "true").lower() in ("true", "1", "yes")
 
+# 📰 新闻-股价归因开关（布林线+甄别消息+相对大盘），默认开
+ATTRIBUTION_ENABLED = os.environ.get("ATTRIBUTION_ENABLED", "true").lower() in ("true", "1", "yes")
+
 # ⚙️ 飞书多维表格 API 配置
 FEISHU_APP_ID = os.environ.get("FEISHU_APP_ID", "").strip()
 FEISHU_APP_SECRET = os.environ.get("FEISHU_APP_SECRET", "").strip()
@@ -622,8 +625,10 @@ class EveningReviewAgent:
                 try:
                     snap = enrich_stock(str(s["code"]).zfill(6), s["name"], float(s["curr_price"]))
                     s["analysis"] = generate_analysis_text(s["code"], s["name"], float(s["curr_price"]), snap, s["strategy"], max_chars=220)
+                    s["news_attrib"] = (snap.get("attribution") or "").strip() if ATTRIBUTION_ENABLED else ""
                 except Exception:
                     s["analysis"] = ""
+                    s["news_attrib"] = ""
 
         still_active = [s for s in summary_list if s["is_active"]]
         strong_stocks = [s for s in still_active if s["ret_pct"] >= 0]
@@ -662,6 +667,12 @@ class EveningReviewAgent:
                     line += f"• 📊 多维分析: {s['analysis']}\n"
                 else:
                     line += f"• 归因: {s['reason']}\n"
+                # 📰 新闻-股价归因：消息驱动 or 大市波动（布林线+甄别消息+相对大盘超额）
+                if s.get("news_attrib"):
+                    _at = s["news_attrib"]
+                    if len(_at) > 220:
+                        _at = _at[:220].rstrip() + "…"
+                    line += f"• {_at}\n"
                 # 🏛️ 多 Agent 议会中肯结论（看多/看空/大市/风控 交锋 + 风控终裁，含多空双方辩论）
                 if EVENING_COUNCIL and _council_run and council_brief:
                     try:
