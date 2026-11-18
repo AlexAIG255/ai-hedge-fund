@@ -382,12 +382,31 @@ def _template_analysis(snap: dict, strategy: str, price: float) -> str:
         pass
     val_level = "偏高" if (pe_num is not None and pe_num > 60) else ("偏低" if (pe_num is not None and 0 < pe_num < 15) else "中性")
 
+    # 💰 资金流向判断：解析数值符号，避免"净流入-1794万"被误判为流入
+    cap_s = str(cap)
+    cap_flow_desc = "数据暂无"
+    if cap_s not in ("暂无", "-", "", "None"):
+        try:
+            cap_val = float(cap_s.replace(",", "").replace("亿", "").replace("万", "").strip())
+            if "亿" in cap_s:
+                cap_val *= 100000000
+            elif "万" in cap_s:
+                cap_val *= 10000
+            if cap_val > 0:
+                cap_flow_desc = "呈净流入态势"
+            elif cap_val < 0:
+                cap_flow_desc = "呈净流出态势（资金撤离，谨慎）"
+            else:
+                cap_flow_desc = "基本持平"
+        except (ValueError, TypeError):
+            cap_flow_desc = "数据暂无"
+
     return (
         f"【财报面】PE {pe}，ROE {roe}，营收同比 {rev_yoy}，净利同比 {net_yoy}，"
         f"整体{'盈利向好' if net_ok else '需警惕'}。\n"
         f"【估值/红利】估值水平 {val_level}，"
         f"股息率 {div}（{'有红利防守' if div not in ('暂无','') else '无'}）。\n"
-        f"【资金面】当日主力净流入 {cap}，资金{'呈流入态势' if '亿' in str(cap) or '万' in str(cap) else '数据暂无'}。\n"
+        f"【资金面】当日主力净流入 {cap}，资金{cap_flow_desc}。\n"
         f"【消息面】{msg}。\n"
         f"【盘面/策略】按「{strategy}」信号入选，现价约 {price}元，注意止损纪律。"
     )
