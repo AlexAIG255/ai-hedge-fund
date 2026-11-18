@@ -97,6 +97,20 @@ try:
 except ImportError:
     run_council = council_brief = None
 
+# 🔄 做T机会分析 Agent（不止损前提下高抛低吸摊低成本）
+try:
+    from t_trade_agent import (analyze_t_opportunity as _analyze_t,
+                               render_t_brief as _render_t_brief)
+except ImportError:
+    try:
+        from hedge_fund.strategies.t_trade_agent import (
+            analyze_t_opportunity as _analyze_t, render_t_brief as _render_t_brief)
+    except ImportError:
+        _analyze_t = _render_t_brief = None
+
+# 是否在做T分析不可行时也展示原因（默认开，让用户知道"为何不建议做T"）
+T_ANALYSIS_ENABLED = os.environ.get("T_ANALYSIS_ENABLED", "true").lower() in ("true", "1", "yes")
+
 
 # ── 配置 ─────────────────────────────────────────────────────────────────
 HOLDINGS_FILE = os.environ.get("HOLDINGS_FILE", "my_holdings.json")
@@ -541,6 +555,21 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
         except Exception as e:
             print(f"⚠️ 议会分析 {name}({code}) 失败，跳过: {e}")
 
+    # 🔄 做T机会分析：基于K线波动性 + 布林位 + 止损安全垫，量化做T可行性与降本效果
+    t_plan = None
+    t_brief = ""
+    if T_ANALYSIS_ENABLED and _analyze_t:
+        try:
+            stop_price = float(decision.get("stop_loss") or 0) or round(cost * 0.92, 2)
+            t_plan = _analyze_t(
+                code, name, cost, cur, qty,
+                snap.get("kline") or [], stop_price,
+                tech=snap.get("technicals") or {},
+            )
+            t_brief = _render_t_brief(t_plan, name, code) if _render_t_brief else ""
+        except Exception as e:
+            print(f"⚠️ 做T分析 {name}({code}) 失败，跳过: {e}")
+
     return {
         "code": code, "name": name, "quantity": qty,
         "cost_price": cost, "current_price": cur,
@@ -552,6 +581,7 @@ def analyze_holding(h: Dict, lessons_ctx: str = "") -> Dict:
         "news_attribution": (snap.get("attribution") or "").strip() if ATTRIBUTION_ENABLED else "",
         "technicals": snap.get("technicals", {}) or {},
         "council": council_text,
+        "t_plan": t_plan, "t_brief": t_brief,
         **decision,
     }
 
@@ -599,6 +629,9 @@ def build_daily_summary(results: List[Dict]) -> str:
             lines.append(f"• {_na}")
         if r.get("council"):
             lines.append(r["council"])
+        # 🔄 做T机会（不止损前提下的高抛低吸降本方案）
+        if r.get("t_brief"):
+            lines.append(r["t_brief"])
         lines.append("-----------------------------------")
         lines.append("-----------------------------------")
 
@@ -753,6 +786,32 @@ def run_daily() -> str:
     return _analyze_and_summarize(holdings)
 
 
+def run_t_trade_summary() -> str:
+    """仅针对当前持仓做「做T机会」分析，汇总成推送文本并推企微。"""
+    holdings = load_holdings()
+    if not holdings:
+        return "⚠️ 暂无持仓数据，无法分析做T。请先文字录入持仓（代码 数量 单价）。"
+    if not _analyze_t:
+        return "⚠️ 做T分析模块未加载，请检查 t_trade_agent.py。"
+    lines = ["🔄 **【持仓做T机会分析】**", "-----------------------------------"]
+    any_plan = False
+    for h in holdings:
+        try:
+            res = analyze_holding(h)   # 复用完整富集（含K线）
+            brief = res.get("t_brief") or ""
+            if brief:
+                lines.append(brief)
+                any_plan = True
+                lines.append("-----------------------------------")
+        except Exception as e:
+            print(f"⚠️ 做T汇总 {h.get('code')} 失败: {e}")
+    if not any_plan:
+        lines.append("暂无可做T标的（波动不足/接近止损/趋势单边），请持仓分析详情查看原因。")
+    text = "\n".join(lines)
+    push_wechat(text)
+    return text
+
+
 def _analyze_and_summarize(holdings: List[Dict]) -> str:
     mem = ExperienceMemory()
     # 汇总查询用于经验检索
@@ -823,6 +882,8 @@ def run_from_text(text: str) -> str:
     if any(k in t for k in ("监控", "异动", "monitor", "scan")):
         alerts = run_holding_monitor()
         return ("📡 已执行一次持仓异动扫描" + ("并推送提醒。" if alerts else "，当前无标的触发异动。"))
+    if any(k in t for k in ("做T", "做t", "摊低", "降本", "t trade", "ttrade")):
+        return run_t_trade_summary()
     holdings = parse_holdings_text(t)
     if not holdings:
         return ("⚠️ 未识别到持仓。请按简约格式输入（每行一只）：\n"

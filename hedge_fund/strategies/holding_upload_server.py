@@ -83,10 +83,11 @@ PAGE = """<!doctype html>
     <p style="margin-top:10px;">
       <button id="btnText">🔍 分析并推送企微</button>
       <button id="btnDaily" class="sec">📅 每日总结</button>
+      <button id="btnT" class="sec">🔄 做T机会</button>
       <button id="btnMonitor" class="sec">📡 立即异动扫描</button>
       <button id="btnClear" class="sec">🗑 清空持仓</button>
     </p>
-    <p class="hint">提示：未录入新数据前，上一次持仓一直沿用（默认持续持仓）。命令可用「总结 / 清空 / 异动」。</p>
+    <p class="hint">🔄「做T机会」：基于真实K线波动性+布林位，在不破止损前提下给出高抛低吸价位与降本测算。未录入新数据前沿用上次持仓。</p>
   </div>
 
   <div class="card">
@@ -139,6 +140,11 @@ btnText.onclick = async () => {
 btnDaily.onclick = async () => {
   setBusy(true); status.textContent = '⏳ 正在生成每日总结…'; result.style.display='none';
   try { const r = await fetch('/daily', {method:'POST'}); show(await r.json()); }
+  catch(e){ status.innerHTML = '<span class="warn">请求失败：'+e+'</span>'; } finally { setBusy(false); }
+};
+btnT.onclick = async () => {
+  setBusy(true); status.textContent = '⏳ 正在分析做T机会（拉K线+波动性测算）…'; result.style.display='none';
+  try { const r = await fetch('/t_trade', {method:'POST'}); show(await r.json()); }
   catch(e){ status.innerHTML = '<span class="warn">请求失败：'+e+'</span>'; } finally { setBusy(false); }
 };
 btnMonitor.onclick = async () => {
@@ -208,6 +214,8 @@ class UploadHandler(BaseHTTPRequestHandler):
             self._handle_monitor()
         elif path == "/daily":
             self._handle_daily()
+        elif path == "/t_trade":
+            self._handle_t_trade()
         else:
             self._send(404, "not found")
 
@@ -248,6 +256,13 @@ class UploadHandler(BaseHTTPRequestHandler):
     def _handle_daily(self):
         try:
             text = ha.run_daily()
+            self._send_json({"ok": True, "text": text, "pushed_to_wechat": bool(ha.WECHAT_WEBHOOK)})
+        except Exception as e:
+            self._send_json({"ok": False, "error": str(e), "text": "", "pushed_to_wechat": bool(ha.WECHAT_WEBHOOK)})
+
+    def _handle_t_trade(self):
+        try:
+            text = ha.run_t_trade_summary()
             self._send_json({"ok": True, "text": text, "pushed_to_wechat": bool(ha.WECHAT_WEBHOOK)})
         except Exception as e:
             self._send_json({"ok": False, "error": str(e), "text": "", "pushed_to_wechat": bool(ha.WECHAT_WEBHOOK)})
