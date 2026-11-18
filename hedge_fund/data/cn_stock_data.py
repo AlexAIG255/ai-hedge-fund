@@ -52,6 +52,38 @@ def _secid(code: str) -> str:
     return f"1.{code}" if code.startswith("60") else f"0.{code}"
 
 
+def _fallback_chain(nodes, validate, label: str = "数据", default=None, verbose: bool = True):
+    """通用故障转移链：按节点顺序逐个尝试，首个通过 validate 的结果立即返回。
+
+    设计目标与三个受保护价格节点的容灾策略一致：主节点失败 → 自动切备用节点 →
+    再失败继续切 → 直至成功；全部失败才返回 default。每个节点独立 try，单一节点
+    异常/空结果不影响其余节点，并打印细粒度日志便于定位哪个节点在生效。
+
+    参数:
+      nodes: [(节点名, 无参可调用), ...]，按优先级排列
+      validate: callable(result) -> bool，判定结果是否有效
+      label: 日志前缀（维度名）
+      default: 全部失败时的返回值
+    返回:
+      (结果, 命中节点名)；全部失败返回 (default, None)
+    """
+    for name, fn in nodes:
+        try:
+            res = fn()
+            if validate(res):
+                if verbose:
+                    print(f"✅ [{label}] 节点『{name}』命中")
+                return res, name
+            if verbose:
+                print(f"⚠️ [{label}] 节点『{name}』无有效数据，切换下一节点")
+        except Exception as e:  # noqa: BLE001
+            if verbose:
+                print(f"⚠️ [{label}] 节点『{name}』异常({str(e)[:50]})，切换下一节点")
+    if verbose:
+        print(f"❌ [{label}] 全部节点失败，返回默认值")
+    return default, None
+
+
 # 大盘涨跌（只读复用现有腾讯 gtimg 节点的公开数据，不修改该节点任何逻辑）
 # 带进程级缓存，5 分钟内复用，避免每个标的都重复请求大盘。
 _MARKET_CACHE: Dict[str, object] = {"ts": 0.0, "pct": 0.0, "summary": ""}
@@ -207,36 +239,71 @@ class CNStockDataFetcher:
             return "暂无"
         return self._fmt_money(val)
 
+    def _sina_capital_flow_value(self, code: str) -> Optional[float]:
+        """新浪异构资金流节点：MoneyFlow.ssi_ssfx_flzjtj 返回 netamount(净流入元)。
+        与东财 push2 完全异构，东财限流/改版时的关键兜底。实测可用。"""
+        try:
+            prefix = self._market_prefix(code)
+            url = ("https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                   f"MoneyFlow.ssi_ssfx_flzjtj?daima={prefix}{code}")
+            r = _retry_get(url, timeout=6, tries=2)
+            if r:
+                import json as _json
+                r.encoding = "gbk"
+                d = _json.loads(r.text)
+                # netamount=净流入总额；r0=超大单净额，作为次选
+                for k in ("netamount", "r0"):
+                    v = d.get(k)
+                    if v not in (None, "", "-"):
+                        val = float(v)
+                        if abs(val) > 1:  # 过滤 0/脏值
+                            return val
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 新浪资金流读取 {code} 异常: {str(e)[:50]}")
+        return None
+
     def fetch_capital_flow_value(self, symbol: str) -> Optional[float]:
-        """返回当日主力净流入（元）；用于『重视资金』的硬性过滤。"""
+        """返回当日主力净流入（元）；三级故障转移链，直到成功为止。
+
+        节点顺序（异构优先，避免同源同挂）：
+          1) 东财 push2 实时 f62  2) 东财 daykline f52  3) 新浪 MoneyFlow(异构)
+        """
         code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
         secid = _secid(code)
-        # 源 A：个股资金流 daykline（f52=主力净流入，单位元）
-        try:
+
+        def node_f62():
+            q = self._push2_quote(code, fields="f62")
+            v = q.get("f62") if q else None
+            return float(v) if isinstance(v, (int, float)) else None
+
+        def node_daykline():
             url = "https://push2.eastmoney.com/api/qt/stock/fflow/daykline/get"
             params = {
                 "lmt": "1", "klt": "101", "secid": secid,
                 "fields1": "f1,f2,f3,f7",
                 "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
             }
-            r = _retry_get(url, params=params, timeout=6)
+            r = _retry_get(url, params=params, timeout=6, tries=2)
             if r:
                 _data = r.json().get("data") or {}
                 klines = (_data.get("klines") if isinstance(_data, dict) else None) or []
                 if klines:
                     parts = klines[0].split(",")
                     if len(parts) > 1 and parts[1] not in ("", "-", None):
-                        try:
-                            return float(parts[1])
-                        except ValueError:
-                            pass
-        except Exception as e:  # noqa: BLE001
-            print(f"⚠️ 资金流 daykline 读取 {code} 异常: {e}")
-        # 源 B：实时行情 f62=主力净流入（元）
-        q = self._push2_quote(code, fields="f62")
-        if q and isinstance(q.get("f62"), (int, float)):
-            return float(q["f62"])
-        return None
+                        return float(parts[1])
+            return None
+
+        def node_sina():
+            return self._sina_capital_flow_value(code)
+
+        val, _hit = _fallback_chain(
+            [("东财push2-f62", node_f62),
+             ("东财daykline", node_daykline),
+             ("新浪资金流", node_sina)],
+            validate=lambda v: isinstance(v, (int, float)) and abs(v) > 1,
+            label=f"资金流 {code}", default=None,
+        )
+        return val
 
     # ───────────────────────── 2.5 历史K线（布林线/技术指标用，独立节点） ─────────────────────────
     def fetch_kline(self, symbol: str, days: int = 30) -> List[Dict[str, float]]:
@@ -306,13 +373,66 @@ class CNStockDataFetcher:
             return float(q["f116"])
         return None
 
-    # ───────────────────────── 4. 股息率（红利防守） ─────────────────────────
+    # ───────────────────────── 4. 股息率（红利防守，多级故障转移） ─────────────────────────
+    def _sina_trade_price(self, code: str) -> Optional[float]:
+        """复用新浪资金流接口返回的 trade（现价），用于股息率估算；失败返回 None。"""
+        try:
+            prefix = self._market_prefix(code)
+            r = _retry_get(
+                "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+                f"MoneyFlow.ssi_ssfx_flzjtj?daima={prefix}{code}", timeout=6, tries=1)
+            if r:
+                import json as _json
+                r.encoding = "gbk"
+                d = _json.loads(r.text)
+                p = float(d.get("trade", 0) or 0)
+                return p if p > 0 else None
+        except Exception:
+            pass
+        return None
+
+    def _datacenter_dividend(self, code: str) -> Optional[float]:
+        """东财 datacenter 分红送配报表：优先 DIVIDENT_RATIO，其次用每10股派息/现价估算。"""
+        try:
+            r = _retry_get(
+                "https://datacenter-web.eastmoney.com/api/data/v1/get",
+                params={"reportName": "RPT_SHAREBONUS_DET", "columns": "ALL",
+                        "filter": f'(SECURITY_CODE="{code}")', "source": "WEB", "client": "WEB",
+                        "pageSize": "8", "sortColumns": "REPORTDATE", "sortTypes": "-1"},
+                timeout=7, tries=1)
+            if r:
+                data = (r.json().get("result") or {}).get("data") or []
+                for it in data[:5]:
+                    dr = it.get("DIVIDENT_RATIO")
+                    if isinstance(dr, (int, float)) and 0 < dr < 50:
+                        return float(dr)
+                # 兜底：最近一期每10股税前派息 / 现价
+                for it in data[:3]:
+                    pretax = it.get("PRETAX_BONUS_RMB")
+                    if isinstance(pretax, (int, float)) and pretax > 0:
+                        price = self._sina_trade_price(code)
+                        if price:
+                            return pretax / 10.0 / price * 100
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ datacenter 股息率 {code} 异常: {str(e)[:50]}")
+        return None
+
     def fetch_dividend_yield(self, symbol: str) -> str:
-        q = self._push2_quote(symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip(),
-                              fields="f168")
-        if q and isinstance(q.get("f168"), (int, float)) and q["f168"] > 0:
-            return f"{q['f168']:.2f}%"
-        return "暂无"
+        """股息率：故障转移链 —— 东财 push2 f168 → datacenter 分红报表（异构）。"""
+        code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
+
+        def node_push2():
+            q = self._push2_quote(code, fields="f168")
+            v = q.get("f168") if q else None
+            return float(v) if isinstance(v, (int, float)) and 0 < v < 50 else None
+
+        val, _hit = _fallback_chain(
+            [("东财push2-f168", node_push2),
+             ("东财datacenter分红", lambda: self._datacenter_dividend(code))],
+            validate=lambda v: isinstance(v, (int, float)) and 0 < v < 50,
+            label=f"股息率 {code}", default=None,
+        )
+        return f"{val:.2f}%" if val is not None else "暂无"
 
     # ───────────────────────── 5. 舆情新闻（新浪主源 + 东财兜底） ─────────────────────────
     @staticmethod
@@ -461,26 +581,131 @@ class CNStockDataFetcher:
             print(f"⚠️ 同花顺资讯 {clean_code} 失败（已跳过）: {str(e)[:60]}")
         return news_list[:limit]
 
+    def _eastmoney_report_news(self, clean_code: str, name: str, limit: int) -> List[Dict[str, str]]:
+        """东财研报（异构权威源）：reportapi.eastmoney.com，返回券商研报标题+机构+日期。
+        实测可达，作为新浪个股资讯之外的关键兜底；失败返回空由链跳过。"""
+        news_list: List[Dict[str, str]] = []
+        import json as _json
+        try:
+            now = datetime.datetime.now()
+            url = "https://reportapi.eastmoney.com/report/list"
+            params = {
+                "cb": "cb", "pageSize": max(limit * 2, 10),
+                "beginTime": f"{now.year - 1}-01-01", "endTime": f"{now.year}-12-31",
+                "pageNo": "1", "qType": "0", "code": clean_code, "p": "1", "pageNum": "1",
+            }
+            r = _retry_get(url, params=params, timeout=7, tries=2)
+            if r and "cb(" in r.text:
+                txt = r.text
+                data = _json.loads(txt[txt.find("cb(") + 3: txt.rfind(")")])
+                for it in (data.get("data") or [])[:max(limit * 2, 10)]:
+                    title = (it.get("title") or "").strip()
+                    if len(title) < 8:
+                        continue
+                    org = it.get("orgSName") or it.get("orgName") or "券商研报"
+                    pub = str(it.get("publishDate") or "")[:10]
+                    news_list.append({
+                        "time": pub, "media": f"研报·{org}", "title": title,
+                        "url": it.get("infoCode", ""),
+                    })
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 东财研报 {clean_code} 失败（已跳过）: {str(e)[:60]}")
+        return news_list[:limit]
+
+    def _eastmoney_ann_news(self, clean_code: str, name: str, limit: int) -> List[Dict[str, str]]:
+        """东财公告（异构权威源）：np-anotice-stock.eastmoney.com，返回公司公告标题+日期。
+        公告往往是最硬的个股事件信息（定增/中标/减持/业绩），实测可达。"""
+        news_list: List[Dict[str, str]] = []
+        try:
+            url = "https://np-anotice-stock.eastmoney.com/api/security/ann"
+            params = {
+                "sr": "-1", "page_size": str(max(limit * 2, 10)), "page_index": "1",
+                "ann_type": "A", "client_source": "web", "stock_list": clean_code,
+            }
+            r = _retry_get(url, params=params, timeout=7, tries=2)
+            if r:
+                lst = ((r.json().get("data") or {}).get("list") or [])
+                for it in lst[:max(limit * 2, 10)]:
+                    title = (it.get("title") or "").strip()
+                    if len(title) < 8:
+                        continue
+                    # 去掉 "皖通高速:" 前缀，保留公告主体
+                    title = re.sub(r"^[^:：]{2,12}[:：]", "", title) or title
+                    news_list.append({
+                        "time": str(it.get("notice_date") or "")[:16],
+                        "media": "公司公告", "title": title,
+                        "url": f"https://data.eastmoney.com/notices/detail/{clean_code}/{it.get('art_code','')}.html",
+                    })
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 东财公告 {clean_code} 失败（已跳过）: {str(e)[:60]}")
+        return news_list[:limit]
+
+    def _sina_flash_news(self, clean_code: str, name: str, limit: int) -> List[Dict[str, str]]:
+        """新浪 7×24 全局快讯（异构兜底）：按个股名/代码过滤快讯流。
+        个股命中率有限，但作为最后补充节点，在主源/研报/公告都失败时仍可能捞到盘中异动。"""
+        news_list: List[Dict[str, str]] = []
+        try:
+            url = ("https://zhibo.sina.com.cn/api/zhibo/feed?page=1&page_size=100"
+                   "&zhibo_id=152&tag_id=0&dire=f&dpc=1")
+            r = _retry_get(url, timeout=7, tries=1)
+            if r:
+                feed = ((r.json().get("result") or {}).get("data") or {}).get("feed") or {}
+                for it in (feed.get("list") or []):
+                    text = re.sub(r"<[^>]+>", "", str(it.get("rich_text") or "")).strip()
+                    if len(text) >= 8 and (name in text or clean_code in text):
+                        news_list.append({
+                            "time": str(it.get("create_time") or "")[:16],
+                            "media": "新浪快讯", "title": text[:160],
+                            "url": "",
+                        })
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ 新浪快讯 {clean_code} 失败（已跳过）: {str(e)[:60]}")
+        return news_list[:limit]
+
     def fetch_today_stock_news(self, symbol: str, name: str, limit: int = 5) -> List[Dict[str, str]]:
-        """多源聚合个股资讯：新浪 / 雪球 / 同花顺 / 东财，逐源尝试、失败跳过、合并去重。
-        返回的是【原始候选】，供后续 _distill_news 甄别筛选。"""
+        """个股资讯故障转移链：主源失败自动切备用，逐个尝试【直至成功】。
+
+        与价格节点容灾策略一致——不再"所有源都并发请求再合并"，而是严格按优先级
+        顺序：某节点一旦拿到足够有效新闻即停止（省请求）；失败/无数据则切下一节点；
+        只有全部节点都失败才返回占位提示。节点刻意选用异构后端，避免同源同挂。
+
+        节点顺序：
+          1) 新浪个股资讯页（主源，实测稳定）
+          2) 东财研报（异构权威，券商观点）
+          3) 东财公告（异构权威，硬事件）
+          4) 东财资讯搜索（异构补充）
+          5) 雪球（可能 WAF）6) 同花顺（可能 JS 动态）7) 新浪7×24快讯（最后补充）
+
+        返回【原始候选】，供后续 _distill_news 甄别筛选。
+        """
         clean_code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
-        sources = [
-            ("新浪财经", lambda: self._sina_stock_news(clean_code, name, limit)),
+        nodes = [
+            ("新浪个股资讯", lambda: self._sina_stock_news(clean_code, name, limit)),
+            ("东财研报", lambda: self._eastmoney_report_news(clean_code, name, limit)),
+            ("东财公告", lambda: self._eastmoney_ann_news(clean_code, name, limit)),
+            ("东财资讯", lambda: self._eastmoney_stock_news(clean_code, name, limit)),
             ("雪球", lambda: self._xueqiu_stock_news(clean_code, name, limit)),
             ("同花顺", lambda: self._ths_stock_news(clean_code, name, limit)),
-            ("东方财富", lambda: self._eastmoney_stock_news(clean_code, name, limit)),
+            ("新浪快讯", lambda: self._sina_flash_news(clean_code, name, limit)),
         ]
+        # 目标条数：拿到 >= 该值即视为"成功"，停止后续节点
+        target = max(limit, 3)
         news_list: List[Dict[str, str]] = []
-        for media, fetch in sources:
+        hit_nodes: List[str] = []
+        for media, fetch in nodes:
             try:
                 got = fetch() or []
                 for n in got:
                     n.setdefault("media", media)
-                news_list.extend(got)
+                if got:
+                    news_list.extend(got)
+                    hit_nodes.append(media)
+                    print(f"✅ [新闻 {name}] 节点『{media}』+{len(got)} 条"
+                          f"（累计 {len(news_list)}）")
             except Exception as e:  # noqa: BLE001
-                print(f"⚠️ 资讯源 {media} 聚合失败（已跳过）: {str(e)[:50]}")
-            if len(news_list) >= limit * 4:  # 已够多，提前结束，避免过度请求
+                print(f"⚠️ [新闻 {name}] 节点『{media}』异常，切换下一节点: {str(e)[:50]}")
+            if len(news_list) >= target:
+                print(f"🏁 [新闻 {name}] 已凑够 {target} 条，命中节点 {hit_nodes}，停止")
                 break
 
         if not news_list:
