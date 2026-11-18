@@ -89,6 +89,16 @@ except ImportError:
     except ImportError:
         _evolve_skill = _render_skill_summary = None
 
+# 🌍 引入市场状态自适应引擎（晚间复盘展示当前时势 + 策略适配提示）
+try:
+    from market_regime_engine import detect_regime as _detect_regime, regime_brief as _regime_brief
+except ImportError:
+    try:
+        from hedge_fund.strategies.market_regime_engine import (
+            detect_regime as _detect_regime, regime_brief as _regime_brief)
+    except ImportError:
+        _detect_regime = _regime_brief = None
+
 # 🏛️ 引入多 Agent 议会（看多/看空/大市/风控 交锋，风控终裁中肯结论）
 try:
     from agent_council import run_council as _council_run, council_brief
@@ -744,7 +754,15 @@ class EveningReviewAgent:
                 if skill_summary:
                     lines.append(skill_summary)
                 else:
-                    lines.append(f"🎯 历史策略胜率: `{win_rate:.1f}%` (仅 WIN/LOSS 口径)")
+                    lines.append("🎯 历史胜率统计暂不可用（Skill 引擎未加载）")
+
+                # 🌍 当前时势 + 策略自适应提示（与早盘共用同一判定缓存）
+                if _regime_brief:
+                    try:
+                        lines.append("")
+                        lines.append(_regime_brief(_detect_regime(), with_recommend=True))
+                    except Exception:
+                        pass
 
                 lines.append("\n💡 *数据已精准同步回填至飞书多维表格*")
 

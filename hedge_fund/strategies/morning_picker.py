@@ -73,6 +73,17 @@ except ImportError:
     enrich_stock = generate_analysis_text = build_risk_hint = None
     summarize_for_feishu = split_wechat_message = None
 
+# 🌍 引入市场状态自适应引擎（牛/熊/震荡/超跌反弹 → 策略权重按时势重排）
+try:
+    from market_regime_engine import (
+        detect_regime as _detect_regime, strategy_fit_score as _strategy_fit_score,
+        regime_brief as _regime_brief, get_strategy_weights as _get_strategy_weights)
+except ImportError:
+    _detect_regime = _strategy_fit_score = _regime_brief = _get_strategy_weights = None
+
+# 🌍 时势自适应开关（默认开；设 false 退回原稳健排序）
+REGIME_ADAPTIVE = os.environ.get("REGIME_ADAPTIVE", "true").lower() in ("true", "1", "yes")
+
 # 🏛️ 引入多 Agent 议会（看多/看空/大市/风控 交锋，风控终裁中肯报告）
 try:
     from agent_council import (
@@ -131,6 +142,14 @@ class MorningStockPickerAgent:
         self.tracker_file = tracker_file
         self.postmortem_file = postmortem_file
         self.risk_agent = RiskManagerAgent() if RiskManagerAgent else None
+        # 🌍 启动时判定当前市场状态（带1小时缓存），供选股排序 + 推送展示共用
+        self.market_regime = None
+        if REGIME_ADAPTIVE and _detect_regime:
+            try:
+                self.market_regime = _detect_regime()
+                print(f"🌍 当前时势判定: {self.market_regime.get('label')}")
+            except Exception as e:
+                print(f"⚠️ 时势判定失败，按中性处理: {e}")
 
     # ==========================================
     # 🧠 1. 历史记录与去重去频模块
@@ -829,14 +848,31 @@ class MorningStockPickerAgent:
             out.append(it)
 
         if out:
-            # 按稳健优先级 + TrendIQ 重排：右侧/趋势策略优先，三倍量/超跌反弹靠后
-            out.sort(key=lambda x: (steady_priority(x.get("strategy_key", x.get("strategy", ""))), -float(x.get("trend_iq", 0))))
-            print(f"🛡️ 稳健筛选后保留 {len(out)} 只（右侧/资金/小盘/不追高护栏已生效）。")
+            self._rank_by_regime(out)
+            print(f"🛡️ 稳健筛选后保留 {len(out)} 只（右侧/资金/小盘/不追高护栏已生效"
+                  f"{' + 时势自适应排序' if self.market_regime else ''}）。")
             return out
 
-        print("⚠️ 稳健模式初筛后无标的，回退至原候选（按稳健优先级排序）。")
-        items.sort(key=lambda x: (steady_priority(x.get("strategy_key", x.get("strategy", ""))), -float(x.get("trend_iq", 0))))
+        print("⚠️ 稳健模式初筛后无标的，回退至原候选。")
+        self._rank_by_regime(items)
         return items
+
+    def _rank_by_regime(self, items: List[Dict]):
+        """按时势匹配度重排候选：匹配度权重×TrendIQ 作为第一排序键。
+
+        牛市→趋势/突破策略靠前；熊市/超跌反弹→超跌反转策略靠前；震荡→突破+反转均衡。
+        未启用时势引擎则退回原稳健优先级排序。
+        """
+        if self.market_regime and _strategy_fit_score:
+            def fit_key(x):
+                strat = x.get("strategy_key", x.get("strategy", ""))
+                # strategy_fit_score 接受中文名，这里用中文名映射
+                cn = strategy_name(strat)
+                return -_strategy_fit_score(cn, self.market_regime, float(x.get("trend_iq", 0)))
+            items.sort(key=fit_key)
+            print(f"🌍 已按当前时势({self.market_regime.get('regime')})重排策略优先级。")
+        else:
+            items.sort(key=lambda x: (steady_priority(x.get("strategy_key", x.get("strategy", ""))), -float(x.get("trend_iq", 0))))
 
     # ==========================================
     # 📊 7. 核心选股引擎
@@ -999,6 +1035,10 @@ class MorningStockPickerAgent:
         # 🛡️ 稳健型筛选：在「保留原 8 大策略信号」基础上叠加右侧/资金/小盘/不追高护栏
         if STEADY_MODE and apply_steady_filter and _CNStockDataFetcher:
             final_items = self._apply_steady_screening(final_items)
+        else:
+            # 🌍 稳健模式关闭时，也统一按当前时势重排一次（保证时势自适应始终生效）
+            if REGIME_ADAPTIVE and self.market_regime:
+                self._rank_by_regime(final_items)
 
         self.update_today_history(final_items)
         self.register_to_tracker(final_items)
@@ -1050,6 +1090,15 @@ class MorningStockPickerAgent:
             message_chunks.append(chunk)
             # 抬头：序号 + 股票名 + 代码，拆段后每段都带，避免多只个股消息混淆
             chunk_headers.append(f"【{idx + 1}/{total_picks}】{i['name']}({i['code']})")
+
+        # 🌍 把"当前时势 + 推荐策略"作为总览段置于最前（独立抬头，不占用个股序号）
+        if REGIME_ADAPTIVE and self.market_regime and _regime_brief:
+            try:
+                regime_overview = "🌍 **【早盘时势研判 · 策略自适应】**\n" + _regime_brief(self.market_regime, with_recommend=True)
+                message_chunks.insert(0, regime_overview)
+                chunk_headers.insert(0, "🌍 时势总览")
+            except Exception as e:
+                print(f"⚠️ 时势简报生成失败，跳过: {e}")
 
         full_md = "\n\n---\n\n".join(message_chunks)
         self._last_chunk_headers = chunk_headers  # 供 push_to_wechat_work 拆段时读取

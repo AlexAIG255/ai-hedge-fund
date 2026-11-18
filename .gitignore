@@ -58,6 +58,8 @@ outputs/
 # sessions running pre-2.1 code may still write here)
 /mandates/
 .hedge_fund_cache/
+# 运行时临时缓存（自动生成，不入库）
+.market_regime_cache.json
 
 # Local-only release tooling
 scripts/release.sh
