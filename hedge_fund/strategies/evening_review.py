@@ -79,6 +79,16 @@ try:
 except ImportError:
     ExperienceMemory = None
 
+# 🧠 引入推送策略 Skill 引擎（真实胜率 + 归因 + 自动升级迭代）
+try:
+    from push_skill_engine import evolve_skill as _evolve_skill, render_push_summary as _render_skill_summary
+except ImportError:
+    try:
+        from hedge_fund.strategies.push_skill_engine import (
+            evolve_skill as _evolve_skill, render_push_summary as _render_skill_summary)
+    except ImportError:
+        _evolve_skill = _render_skill_summary = None
+
 # 🏛️ 引入多 Agent 议会（看多/看空/大市/风控 交锋，风控终裁中肯结论）
 try:
     from agent_council import run_council as _council_run, council_brief
@@ -107,6 +117,17 @@ WECHAT_WEBHOOK = os.environ.get("WECHAT_WEBHOOK", "").strip()
 # 🎯 持久化文件路径
 TRACKER_FILE = "portfolio_tracker.json"
 POSTMORTEM_FILE = "skills_postmortem.md"
+
+# 🛑 终态集合（已结案：止盈/止损/到期/手动平仓）。这些状态一律不再复盘、不再推送，
+#    避免"已止损"股票被反复扫描、反复推送浪费信息（用户明确要求：止损后即停止追踪推送）。
+TERMINAL_STATUSES = {"WIN", "LOSS", "WIN_CLOSE", "LOSS_CLOSE", "CLOSED"}
+# 🛑 止损类终态（用于"止损后停止推送"的精确判定）
+STOPLOSS_STATUSES = {"LOSS", "LOSS_CLOSE"}
+
+
+def is_terminal(status) -> bool:
+    """是否为已结案终态。终态标的不再追踪/复盘/推送。"""
+    return str(status or "").strip().upper() in TERMINAL_STATUSES
 
 
 class EveningReviewAgent:
@@ -274,7 +295,10 @@ class EveningReviewAgent:
                 fs_item.setdefault("pending_signal", "")
                 tracker_map[code] = fs_item
             else:
-                if tracker_map[code].get("status") not in ["WIN", "LOSS"]:
+                # 🛑 关键修复：本地已结案（WIN/LOSS/CLOSED/WIN_CLOSE/LOSS_CLOSE）的标的，
+                #    一律不再被飞书"持仓中"状态重新激活为 TRACKING。
+                #    旧代码只判断 ["WIN","LOSS"]，导致 CLOSED/LOSS_CLOSE 等被反复重置→反复推送止损。
+                if not is_terminal(tracker_map[code].get("status")):
                     tracker_map[code]["status"] = "TRACKING"
                     tracker_map[code]["entry_price"] = fs_item["entry_price"]
                     tracker_map[code]["target_price"] = fs_item["target_price"]
@@ -437,6 +461,8 @@ class EveningReviewAgent:
 
         self.save_tracker(tracker_data)
         self.update_skills_postmortem(tracker_data)
+        # 🧠 自动升级推送策略 Skill（真实胜率 + 盈亏归因 + 参数迭代），失败不影响推送
+        self._evolve_push_skill(tracker_data)
         self.push_wechat_summary(review_summary, tracker_data)
 
     # ==========================================
@@ -563,6 +589,15 @@ class EveningReviewAgent:
         self._send_markdown_parts("\n".join(lines))
         print(f"🚨 盘中抛售提醒已推送（共 {len(alerts)} 只）！")
 
+    def _evolve_push_skill(self, tracker_data: List[Dict]):
+        """自动升级推送策略 Skill：真实胜率→盈亏归因→参数迭代→版本化文档。"""
+        if _evolve_skill is None:
+            return
+        try:
+            _evolve_skill(tracker_data)
+        except Exception as e:
+            print(f"⚠️ 推送 Skill 自动升级失败（不影响主流程）: {e}")
+
     def update_skills_postmortem(self, tracker_data: List[Dict]):
         completed = [i for i in tracker_data if i.get("status") in ["WIN", "LOSS"]]
         total = len(completed)
@@ -636,10 +671,14 @@ class EveningReviewAgent:
 
         avg_ret = (sum(s["ret_pct"] for s in still_active) / len(still_active)) if still_active else 0.0
 
-        completed = [i for i in all_tracker_data if i.get("status") in ["WIN", "LOSS"]]
-        total_completed = len(completed)
-        win_count = sum(1 for i in completed if i.get("status") == "WIN")
-        win_rate = (win_count / total_completed * 100) if total_completed > 0 else 0.0
+        # 🧠 真实胜率/归因统一由 Skill 引擎计算（修复旧逻辑只数 WIN 状态、胜率虚低到 7.5% 的 bug）
+        if _render_skill_summary is not None:
+            try:
+                skill_summary = _render_skill_summary(all_tracker_data, with_attribution=True)
+            except Exception:
+                skill_summary = ""
+        else:
+            skill_summary = ""
 
         # 🚨 今日触发离场的标的（需抛售清单）
         closed_today = [s for s in summary_list if s["just_closed_today"]]
@@ -696,17 +735,16 @@ class EveningReviewAgent:
                         lines.append(f"• `{s['code']}` {s['name']} — **{s['status']}** | {s['reason']}")
                     lines.append("")
 
-                lines.append("📊 **【持仓强弱筛选与成功率统计】**\n")
-                lines.append(f"• 🎯 **历史策略成功率(胜率)**: `{win_rate:.1f}%` (已结案 `{total_completed}` 只)")
+                lines.append("📊 **【持仓强弱筛选】**\n")
                 lines.append(f"• 📈 **当前活跃持仓平均收益率**: `{avg_ret:+.2f}%`")
                 lines.append(f"• 💪 **建议持有(强势标的)**: {', '.join([s['name'] for s in strong_stocks]) or '无'}")
                 lines.append(f"• ⚠️ **建议防守(弱势跟踪中)**: {', '.join([s['name'] for s in weak_stocks]) or '无'}\n")
 
-                lines.append("🧐 **【盈亏归因分析】**")
-                if avg_ret >= 0:
-                    lines.append("• **盈利主因**: 选股策略与板块资金共振，突破阻力位后动能延续良好。")
+                # 🧠 真实胜率 + 数据驱动归因（来自自动升级的 Skill 引擎）
+                if skill_summary:
+                    lines.append(skill_summary)
                 else:
-                    lines.append("• **亏损主因**: 大盘盘整期买盘承接不足，部分标的触及防守线触发风控。")
+                    lines.append(f"🎯 历史策略胜率: `{win_rate:.1f}%` (仅 WIN/LOSS 口径)")
 
                 lines.append("\n💡 *数据已精准同步回填至飞书多维表格*")
 

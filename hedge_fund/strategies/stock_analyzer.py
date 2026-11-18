@@ -131,8 +131,12 @@ def enrich_stock(code: str, name: str, price: float = 0.0, news_limit: int = 3) 
         return {
             "code": str(code).replace("sh", "").replace("sz", "").replace("bj", "").strip(),
             "name": name, "price": price,
-            "financials": {}, "dividend_yield": "暂无",
-            "capital_flow": "暂无", "news": [], "technicals": {}, "attribution": "",
+            "financials": {"市盈率(TTM)": "暂无", "市净率(PB)": "暂无",
+                           "ROE(净资产收益率)": "暂无", "营收同比": "暂无",
+                           "净利润同比": "暂无", "股息率(TTM)": "暂无"},
+            "dividend_yield": "暂无", "capital_flow": "暂无",
+            "news": [], "news_digest": {}, "industry_news": [],
+            "kline": [], "technicals": {}, "attribution": "",
         }
 
 
@@ -312,35 +316,79 @@ def build_risk_hint(snap: dict, strategy: str = "") -> str:
 # ──────────────────────────────────────────────────────────────
 def _snapshot_to_text(snap: dict, strategy: str, price: float) -> str:
     fin = snap.get("financials", {}) or {}
-    fin_str = "、".join(f"{k}:{v}" for k, v in fin.items()) or "暂无"
+    fin_str = "、".join(f"{k}:{v}" for k, v in fin.items() if v not in ("暂无", "", None)) or "财务数据暂无"
     news = snap.get("news", []) or []
-    news_str = "；".join(n.get("title", "") for n in news[:3]) or "暂无重大舆情"
+    news_str = "；".join(n.get("title", "") for n in news[:4]) or "暂无重大舆情"
+    # 📰 甄别后的结构化要点（利多/利空/行业），优先喂给 LLM，确保"关键新闻"被重点解读
+    digest = snap.get("news_digest", {}) or {}
+    key_points = []
+    if digest.get("bull_points"):
+        key_points.append("【利多】" + "；".join(digest["bull_points"][:3]))
+    if digest.get("bear_points"):
+        key_points.append("【利空】" + "；".join(digest["bear_points"][:3]))
+    if digest.get("industry_points"):
+        key_points.append("【行业】" + "；".join(digest["industry_points"][:2]))
+    industry_news = snap.get("industry_news", []) or []
+    ind_titles = "；".join(n.get("title", "") for n in industry_news[:2])
+    digest_str = ("\n".join(key_points) + (f"\n【板块消息】{ind_titles}" if ind_titles else "")) if key_points else ""
+    tech = snap.get("technicals", {}) or {}
+    tech_str = ""
+    if tech:
+        tech_str = (f"\n技术面：布林位置{tech.get('position', '-')} "
+                    f"日涨跌{tech.get('day_chg', '-')}% 量比{tech.get('vol_ratio', '-')}")
     return (
         f"标的：{snap.get('name')}({snap.get('code')}) 现价约{price}元 策略:{strategy}\n"
         f"财报估值：{fin_str}\n"
         f"股息率：{snap.get('dividend_yield')} 主力净流入：{snap.get('capital_flow')}\n"
-        f"当日舆情：{news_str}"
+        f"{digest_str or ('当日舆情：' + news_str)}\n"
+        f"原始舆情：{news_str}{tech_str}"
     )
 
 
 def _template_analysis(snap: dict, strategy: str, price: float) -> str:
     fin = snap.get("financials", {}) or {}
-    pe = fin.get("市盈率(TTM)", "-")
-    roe = fin.get("ROE(净资产收益率)", "-")
-    rev_yoy = fin.get("营收同比", "-")
-    net_yoy = fin.get("净利润同比", "-")
+    pe = fin.get("市盈率(TTM)", "暂无")
+    roe = fin.get("ROE(净资产收益率)", "暂无")
+    rev_yoy = fin.get("营收同比", "暂无")
+    net_yoy = fin.get("净利润同比", "暂无")
     div = snap.get("dividend_yield", "暂无")
     cap = snap.get("capital_flow", "暂无")
     news = snap.get("news", []) or []
-    top_news = news[0].get("title", "暂无重大舆情") if news else "暂无重大舆情"
+    digest = snap.get("news_digest", {}) or {}
+
+    # 📰 消息面优先用甄别后的关键要点（利多/利空/行业），确保"重要新闻"真正出现在推送里
+    msg_bits = []
+    bull = digest.get("bull_points") or []
+    bear = digest.get("bear_points") or []
+    ind = digest.get("industry_points") or []
+    if bull:
+        msg_bits.append("利多:" + "；".join(bull[:2]))
+    if bear:
+        msg_bits.append("利空:" + "；".join(bear[:2]))
+    if ind:
+        msg_bits.append("行业:" + "；".join(ind[:1]))
+    if msg_bits:
+        msg = "｜".join(msg_bits)
+    elif news:
+        msg = "；".join(n.get("title", "") for n in news[:2])
+    else:
+        msg = "暂无重大舆情"
+
+    net_ok = str(net_yoy) not in ("暂无", "-", "", "None") and not str(net_yoy).startswith("-")
+    pe_num = None
+    try:
+        pe_num = float(str(pe).replace("%", "").replace(",", ""))
+    except (ValueError, TypeError):
+        pass
+    val_level = "偏高" if (pe_num is not None and pe_num > 60) else ("偏低" if (pe_num is not None and 0 < pe_num < 15) else "中性")
 
     return (
         f"【财报面】PE {pe}，ROE {roe}，营收同比 {rev_yoy}，净利同比 {net_yoy}，"
-        f"整体{'盈利向好' if ('-' not in str(net_yoy) and not str(net_yoy).startswith('-')) else '需警惕'}。\n"
-        f"【估值/红利】估值水平 {('偏高' if str(pe).replace('%','').isdigit() and float(str(pe).replace('%',''))>60 else '中性')}，"
+        f"整体{'盈利向好' if net_ok else '需警惕'}。\n"
+        f"【估值/红利】估值水平 {val_level}，"
         f"股息率 {div}（{'有红利防守' if div not in ('暂无','') else '无'}）。\n"
         f"【资金面】当日主力净流入 {cap}，资金{'呈流入态势' if '亿' in str(cap) or '万' in str(cap) else '数据暂无'}。\n"
-        f"【消息面】{top_news}。\n"
+        f"【消息面】{msg}。\n"
         f"【盘面/策略】按「{strategy}」信号入选，现价约 {price}元，注意止损纪律。"
     )
 

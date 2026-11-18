@@ -111,10 +111,17 @@ class CNStockDataFetcher:
             pe_ttm = self._datacenter_value("RPT_VALUEANALYSIS_DET", code, "PE_TTM")
             if pe_ttm is not None:
                 fin["市盈率(TTM)"] = f"{pe_ttm:.2f}"
-        # —— 源 C：datacenter 财务指标（WEIGHTAVG_ROE）——
+        # —— 源 C：datacenter 财务指标（权威同比：YSTZ 营收同比 / SJLTZ 净利同比 / WEIGHTAVG_ROE）——
+        # push2 的 f182/f183 常返回天文脏值，改用 datacenter 正式财报字段，避免"净利润同比暂无"。
         roe = self._datacenter_value("RPT_LICO_FN_CPD", code, "WEIGHTAVG_ROE")
-        if roe is not None:
+        if roe is not None and abs(roe) <= 10000:
             fin["ROE(净资产收益率)"] = f"{roe:.2f}%"
+        ystz = self._datacenter_value("RPT_LICO_FN_CPD", code, "YSTZ")
+        if ystz is not None and abs(ystz) <= 10000:
+            fin["营收同比"] = f"{ystz:.2f}%"
+        sjltz = self._datacenter_value("RPT_LICO_FN_CPD", code, "SJLTZ")
+        if sjltz is not None and abs(sjltz) <= 10000:
+            fin["净利润同比"] = f"{sjltz:.2f}%"
 
         # —— 源 D：push2 实时行情补充 PB / 股息率TTM / 营收同比 / 净利同比 ——
         q = self._push2_quote(code, fields="f57,f58,f167,f168,f182,f183,f173")
@@ -680,38 +687,72 @@ class CNStockDataFetcher:
 
     # ───────────────────────── 6. 一次性快照 ─────────────────────────
     def fetch_full_snapshot(self, symbol: str, name: str, news_limit: int = 3) -> Dict[str, object]:
+        """一次性快照：每个子源【独立容错】，任一源失败只降级该维度，不再让整段变空。
+
+        关键修复（财务/新闻全"暂无"根因）：
+          - 旧版任一子请求抛异常 → 上层 enrich_stock 的 except 吞掉 → 返回全空快照；
+          - 且空快照被永久缓存，一次失败污染全天所有推送。
+          - 现在：逐维度 try/except + 脏值兜底 + 仅"有效快照"才入缓存。
+        """
         key = f"{symbol}"
         if key in self._cache:
             return self._cache[key]
-        financials = self.fetch_stock_financials(symbol)
-        dividend = self.fetch_dividend_yield(symbol)
-        capital = self.fetch_capital_flow(symbol)
-        raw_news = self.fetch_today_stock_news(symbol, name, limit=max(news_limit, 5))
+
         clean_code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
-        news_digest, news = self._distill_news(raw_news, name, clean_code, limit=max(news_limit, 3))
-        industry_news = self.fetch_industry_news(symbol, name, limit=3, news=news)
-        # 行业消息同样做情绪标注，供议会识别赛道共振
+
+        def _safe(label: str, fn, default):
+            try:
+                return fn()
+            except Exception as e:  # noqa: BLE001
+                print(f"⚠️ 快照子源[{label}] {name}({clean_code}) 失败，降级: {str(e)[:60]}")
+                return default
+
+        financials = _safe("财务", lambda: self.fetch_stock_financials(symbol), {})
+        if not isinstance(financials, dict) or not financials:
+            financials = {}
+        for k in ("市盈率(TTM)", "市净率(PB)", "ROE(净资产收益率)",
+                  "营收同比", "净利润同比", "股息率(TTM)"):
+            financials.setdefault(k, "暂无")
+        dividend = _safe("股息率", lambda: self.fetch_dividend_yield(symbol), "暂无")
+        capital = _safe("资金流", lambda: self.fetch_capital_flow(symbol), "暂无")
+        raw_news = _safe("新闻", lambda: self.fetch_today_stock_news(
+            symbol, name, limit=max(news_limit, 5)), [])
+        raw_news = raw_news or []
+        news_digest, news = _safe("甄别", lambda: self._distill_news(
+            raw_news, name, clean_code, limit=max(news_limit, 3)), ({}, []))
+        if not isinstance(news_digest, dict):
+            news_digest, news = {}, []
+        industry_news = _safe("行业消息", lambda: self.fetch_industry_news(
+            symbol, name, limit=3, news=news), [])
+        industry_news = industry_news or []
         for n in industry_news:
-            n["tone"] = self._news_tone(n.get("title", ""))
+            try:
+                n["tone"] = self._news_tone(n.get("title", ""))
+            except Exception:
+                n["tone"] = "中性"
         # 历史K线（布林线/技术指标用，独立节点；可用开关关闭省请求）
         kline: List[Dict[str, float]] = []
         if os.environ.get("ENABLE_KLINE_TECHNICALS", "true").lower() in ("true", "1", "yes"):
-            try:
-                kline = self.fetch_kline(symbol, days=30)
-            except Exception as e:  # noqa: BLE001
-                print(f"⚠️ K线获取 {name}({clean_code}) 跳过: {str(e)[:50]}")
+            kline = _safe("K线", lambda: self.fetch_kline(symbol, days=30), [])
+
         snap = {
             "code": clean_code,
             "name": name,
             "financials": financials,
-            "dividend_yield": dividend,
-            "capital_flow": capital,
-            "news": news,
+            "dividend_yield": dividend if dividend else "暂无",
+            "capital_flow": capital if capital else "暂无",
+            "news": news or [],
             "news_digest": news_digest,        # 甄别后结构化摘要（供议会多空交锋）
             "industry_news": industry_news,   # 行业/板块消息面（供议会多空解读）
-            "kline": kline,                   # 历史日K（布林线/技术指标用）
+            "kline": kline or [],             # 历史日K（布林线/技术指标用）
         }
-        self._cache[key] = snap
+        # 仅当至少一个维度有真实数据才缓存，避免一次网络抖动把空快照钉死一整天
+        has_real = (
+            any(v not in ("暂无", "", None) for v in financials.values())
+            or bool(news) or bool(kline)
+        )
+        if has_real:
+            self._cache[key] = snap
         return snap
 
     @staticmethod

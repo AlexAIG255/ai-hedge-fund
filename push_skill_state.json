@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "updated_at": "2026-11-18 12:01:39",
+  "params": {
+    "trend_iq_floor": 80,
+    "stop_loss_ratio": 0.95,
+    "suggest_pos_pct": 10.0,
+    "require_capital_inflow": false,
+    "favor_news_bull": true
+  },
+  "last_win_rate": 51.23,
+  "last_settled": 231,
+  "changes": [
+    "自动升级已关闭(SKILL_AUTO_EVOLVE=false)"
+  ],
+  "win_rate_history": [
+    51.23
+  ]
+}
