@@ -2,15 +2,15 @@
 hedge_fund/data/cn_stock_data.py
 专用于选中标的之【财务基础面】与【舆情新闻】定向补充数据源
 
-数据来源（均为公开接口，无需 API Key，多源兜底）：
-  - qt.gtimg.cn（腾讯基础行情）      → PE(TTM)/PB/流通市值/总市值【用户机器稳定可达，作为估值兜底主源】
-  - datacenter-web.eastmoney.com     → 估值分析(PE_TTM) / 财务指标(ROE/营收/净利)【已实测可用】
-  - push2.eastmoney.com (股票实时行情) → PB / 股息率TTM / 营收净利同比 / 主力净流入 / 流通市值【用户机器可达】
+数据来源（均为公开接口，无需 API Key，多节点运行 + 腾讯兜底）：
+  - datacenter-web.eastmoney.com     → 估值分析(PE_TTM) / 财务指标(ROE/营收/净利)【估值与成长主节点】
+  - push2.eastmoney.com (股票实时行情) → PB / 股息率TTM / 营收净利同比【补充节点】
+  - qt.gtimg.cn（腾讯基础行情）      → PE(TTM)/PB/流通市值/总市值【估值兜底节点】
   - push2.eastmoney.com (个股资金流 daykline) → 主力净流入(按日)
 
 健壮性：
   - 所有请求带重试 + 退避，避免盘中突发请求被限流时整批变「暂无」。
-  - 每个数据点多源兜底：datacenter 优先（已验证），push2 补充（PB/股息/成长/资金）。
+  - 每个数据点多节点运行：datacenter 主节点（已验证）→ push2 补充节点 → 腾讯 gtimg 兜底节点。
   - 单只失败不影响整体，返回「暂无」并打日志，便于用 __main__ 自检定位。
 """
 
@@ -119,68 +119,120 @@ class CNStockDataFetcher:
     def __init__(self):
         self._cache = CNStockDataFetcher._CACHE
 
-    # ───────────────────────── 1. 财务/估值（多源兜底） ─────────────────────────
+    # ───────────────────────── 1. 财务/估值（多节点运行 + 腾讯兜底） ─────────────────────────
     def fetch_stock_financials(self, symbol: str) -> Dict[str, str]:
-        """抓取单只股票核心财务/估值指标。腾讯 gtimg 优先（用户机器可达），
-        datacenter 补充 ROE/成长，push2 补充 PB/股息率/成长；多源兜底避免整段变空。"""
+        """抓取单只股票核心财务/估值指标。【多节点运行，腾讯兜底】。
+
+        逐节点补缺，前序节点失败/缺字段时自动切下一节点，与资金流/新闻的
+        故障转移策略一致；单一节点异常不影响其余维度：
+
+          估值维度（PE/PB/市值/股息）：
+            ① 东财 datacenter 估值分析（PE_TTM，权威）
+            ② 东财 push2 实时行情（PB / 股息率TTM）
+            ③ 腾讯 gtimg 基础行情（PE/PB/流通市值/总市值）——【兜底节点】
+          盈利/成长维度（ROE/营收同比/净利同比）：
+            ① 东财 datacenter 财务指标（一次请求取全三列，权威）
+            ② 东财 push2 实时行情（营收/净利同比，带脏值过滤）
+
+        全部失败的字段归「暂无」，并打日志便于用 __main__ 自检定位。"""
         code = symbol.replace("sh", "").replace("sz", "").replace("bj", "").strip()
         fin: Dict[str, str] = {}
+        hit_nodes = []
 
-        # —— 源 A（优先）：腾讯 gtimg 基础行情 —— PE(TTM)[39] / PB[46] / 流通市值[44] / 总市值[45]
-        tq = self._tencent_quote(code)
-        if tq:
-            for idx, key in ((39, "市盈率(TTM)"), (46, "市净率(PB)"),
-                             (44, "流通市值(亿)"), (45, "总市值(亿)")):
-                v = tq.get(str(idx)) or tq.get(idx)
-                if v not in (None, "", "-", "--"):
-                    try:
-                        fin.setdefault(key, f"{float(v):.2f}")
-                    except ValueError:
-                        pass
-
-        # —— 源 B：datacenter 估值分析（PE_TTM 兜底）——
-        if "市盈率(TTM)" not in fin:
-            pe_ttm = self._datacenter_value("RPT_VALUEANALYSIS_DET", code, "PE_TTM")
-            if pe_ttm is not None:
-                fin["市盈率(TTM)"] = f"{pe_ttm:.2f}"
-        # —— 源 C：datacenter 财务指标（权威同比：YSTZ 营收同比 / SJLTZ 净利同比 / WEIGHTAVG_ROE）——
-        # push2 的 f182/f183 常返回天文脏值，改用 datacenter 正式财报字段，避免"净利润同比暂无"。
-        roe = self._datacenter_value("RPT_LICO_FN_CPD", code, "WEIGHTAVG_ROE")
-        if roe is not None and abs(roe) <= 10000:
-            fin["ROE(净资产收益率)"] = f"{roe:.2f}%"
-        ystz = self._datacenter_value("RPT_LICO_FN_CPD", code, "YSTZ")
-        if ystz is not None and abs(ystz) <= 10000:
-            fin["营收同比"] = f"{ystz:.2f}%"
-        sjltz = self._datacenter_value("RPT_LICO_FN_CPD", code, "SJLTZ")
-        if sjltz is not None and abs(sjltz) <= 10000:
-            fin["净利润同比"] = f"{sjltz:.2f}%"
-
-        # —— 源 D：push2 实时行情补充 PB / 股息率TTM / 营收同比 / 净利同比 ——
-        q = self._push2_quote(code, fields="f57,f58,f167,f168,f182,f183,f173")
+        # ── 估值维度：多节点运行，腾讯兜底 ──
+        # 节点①：东财 datacenter 估值分析（权威 PE_TTM）
+        pe_ttm = self._datacenter_value("RPT_VALUEANALYSIS_DET", code, "PE_TTM")
+        if pe_ttm is not None and abs(pe_ttm) <= 10000:
+            fin["市盈率(TTM)"] = f"{pe_ttm:.2f}"
+            hit_nodes.append("datacenter估值")
+        # 节点②：东财 push2 实时行情（PB / 股息率TTM）
+        q = self._push2_quote(code, fields="f167,f168")
         if q:
-            pb = q.get("f167")
-            div = q.get("f168")
-            rev_yoy = q.get("f182")
-            net_yoy = q.get("f183")
-            if "市净率(PB)" not in fin and isinstance(pb, (int, float)):
-                fin.setdefault("市净率(PB)", f"{pb:.2f}")
-            if isinstance(div, (int, float)) and div > 0:
+            pb, div = q.get("f167"), q.get("f168")
+            if "市净率(PB)" not in fin and isinstance(pb, (int, float)) and abs(pb) <= 10000:
+                fin["市净率(PB)"] = f"{pb:.2f}"
+                hit_nodes.append("push2估值")
+            if isinstance(div, (int, float)) and 0 < div < 100:
                 fin.setdefault("股息率(TTM)", f"{div:.2f}%")
-            # 🔧 合理性过滤：东财 f182/f183 偶发返回天文数字原始值（如 1.3e11），
-            # 直接格式化会污染分析。|%| 超 10000 视为脏值，跳过 → 归「暂无」。
-            if isinstance(rev_yoy, (int, float)) and abs(rev_yoy) <= 10000:
-                fin.setdefault("营收同比", f"{rev_yoy:.2f}%")
-            if isinstance(net_yoy, (int, float)) and abs(net_yoy) <= 10000:
-                fin.setdefault("净利润同比", f"{net_yoy:.2f}%")
+        # 节点③：腾讯 gtimg 兜底（PE(TTM)[39] / PB[46] / 流通市值[44] / 总市值[45]）
+        if "市盈率(TTM)" not in fin or "市净率(PB)" not in fin or "总市值(亿)" not in fin:
+            tq = self._tencent_quote(code)
+            if tq:
+                for idx, key in ((39, "市盈率(TTM)"), (46, "市净率(PB)"),
+                                 (44, "流通市值(亿)"), (45, "总市值(亿)")):
+                    if key in fin:
+                        continue
+                    v = tq.get(str(idx)) or tq.get(idx)
+                    if v not in (None, "", "-", "--"):
+                        try:
+                            fin[key] = f"{float(v):.2f}"
+                            hit_nodes.append("腾讯兜底")
+                        except ValueError:
+                            pass
+
+        # ── 盈利/成长维度：datacenter 权威 → push2 兜底 ──
+        # 节点①：datacenter 财务指标（一次请求取 ROE/营收同比/净利同比）
+        row = self._datacenter_row("RPT_LICO_FN_CPD", code,
+                                   ["WEIGHTAVG_ROE", "YSTZ", "SJLTZ"])
+        if row:
+            roe = row.get("WEIGHTAVG_ROE")
+            if roe is not None and abs(roe) <= 10000:
+                fin["ROE(净资产收益率)"] = f"{roe:.2f}%"
+            ystz = row.get("YSTZ")
+            if ystz is not None and abs(ystz) <= 10000:
+                fin["营收同比"] = f"{ystz:.2f}%"
+            sjltz = row.get("SJLTZ")
+            if sjltz is not None and abs(sjltz) <= 10000:
+                fin["净利润同比"] = f"{sjltz:.2f}%"
+            hit_nodes.append("datacenter财务")
+        # 节点②：东财 push2 补充（营收/净利同比；|%| 超 10000 视为脏值归「暂无」）
+        if "营收同比" not in fin or "净利润同比" not in fin:
+            q2 = self._push2_quote(code, fields="f182,f183")
+            if q2:
+                rev_yoy, net_yoy = q2.get("f182"), q2.get("f183")
+                if "营收同比" not in fin and isinstance(rev_yoy, (int, float)) and abs(rev_yoy) <= 10000:
+                    fin["营收同比"] = f"{rev_yoy:.2f}%"
+                if "净利润同比" not in fin and isinstance(net_yoy, (int, float)) and abs(net_yoy) <= 10000:
+                    fin["净利润同比"] = f"{net_yoy:.2f}%"
+                hit_nodes.append("push2成长")
+
+        if hit_nodes:
+            print(f"✅ [财务 {code}] 命中节点：{sorted(set(hit_nodes))}")
+        elif not any(v != "暂无" for v in fin.values()):
+            print(f"⚠️ 读取个股 {code} 财务数据全部失败（含腾讯兜底节点，接口限流或网络），返回暂无。")
 
         # —— 归一化：缺失字段统一为「暂无」，避免模板里出现裸「-」 ——
         for k in ("市盈率(TTM)", "市净率(PB)", "ROE(净资产收益率)",
                   "营收同比", "净利润同比", "股息率(TTM)"):
             fin.setdefault(k, "暂无")
-
-        if not any(v != "暂无" for v in fin.values()):
-            print(f"⚠️ 读取个股 {code} 财务数据全部失败（接口限流或网络），返回暂无。")
         return fin
+
+    def _datacenter_row(self, report: str, code: str, columns: List[str]) -> Dict[str, float]:
+        """datacenter 批量取多列：一次请求拿全一组指标，减少请求数（多节点运行时避免触发限流）。"""
+        try:
+            url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+            params = {
+                "reportName": report,
+                "columns": "SECURITY_CODE," + ",".join(columns),
+                "filter": f'(SECURITY_CODE="{code}")',
+                "source": "WEB", "client": "WEB", "pageSize": "1",
+            }
+            r = _retry_get(url, params=params, timeout=6)
+            if r:
+                data = r.json().get("result", {}).get("data") or []
+                if data:
+                    out: Dict[str, float] = {}
+                    for c in columns:
+                        v = data[0].get(c)
+                        if v is not None:
+                            try:
+                                out[c] = float(v)
+                            except (ValueError, TypeError):
+                                pass
+                    return out
+        except Exception as e:  # noqa: BLE001
+            print(f"⚠️ datacenter({report}) 读取 {code} 异常: {e}")
+        return {}
 
     def _datacenter_value(self, report: str, code: str, column: str) -> Optional[float]:
         try:

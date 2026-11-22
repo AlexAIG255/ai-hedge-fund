@@ -407,9 +407,9 @@ def _template_analysis(snap: dict, strategy: str, price: float) -> str:
 
     if fin_empty:
         return (
-            "【财报面】⚠️ 财务数据源暂不可用（本机未取到东财/腾讯财务字段，非个股无数据）。\n"
-            "  可在部署机运行 `python3 hedge_fund/strategies/data_source_doctor.py "
-            f"{snap.get('code', '')} {snap.get('name', '')}` 自检节点连通性。\n"
+            "【财报面】⚠️ 财务数据源暂不可用（估值/财务多节点均未命中，腾讯兜底节点亦未返回有效字段）。\n"
+            "  📊 财务面总结：暂无法评估（建议在部署机运行 `python3 hedge_fund/strategies/data_source_doctor.py "
+            f"{snap.get('code', '')} {snap.get('name', '')}` 自检节点连通性）。\n"
             f"【资金面】当日主力净流入 {cap}，资金{cap_flow_desc}。\n"
             f"【消息面】{msg}。\n"
             f"【盘面/策略】按「{strategy}」信号入选，现价约 {price}元，注意止损纪律。"
@@ -448,9 +448,30 @@ def _template_analysis(snap: dict, strategy: str, price: float) -> str:
     mcap_str = f"{mcap}亿" if mcap not in ("暂无", "-", "") else "暂无"
     pb = fin.get("市净率(PB)", "暂无")
 
+    # 📊 财务面综合总结：估值 / 盈利 / 成长三因子合成一句结论
+    fin_score = 0
+    if pe_num is not None:
+        if pe_num <= 0:
+            fin_score -= 1
+        elif pe_num < 15:
+            fin_score += 1
+        elif pe_num > 60:
+            fin_score -= 1
+    if roe_n is not None:
+        fin_score += 1 if roe_n >= 10 else (-1 if roe_n < 5 else 0)
+    if rev_n is not None and net_n is not None:
+        if rev_n > 0 and net_n > 0:
+            fin_score += 1
+        elif rev_n < 0 and net_n < 0:
+            fin_score -= 1
+    fin_verdict = "良好" if fin_score >= 2 else ("承压" if fin_score <= -1 else "中性")
+    # 成长描述里可能带"，基本面承压"尾巴，与判定词重复，拼接时剥离
+    grow_brief = grow_desc.split("，")[0]
+
     return (
         f"【财报面】PE {pe} / PB {pb} / 总市值 {mcap_str}；ROE {roe}，营收同比 {rev_yoy}，净利同比 {net_yoy}。\n"
         f"  盈利：{profit_desc}；成长：{grow_desc}。\n"
+        f"  📊 财务面总结：基本面{fin_verdict}（估值{val_level}＋{profit_desc}＋{grow_brief}）。\n"
         f"【估值/红利】估值{val_level}，"
         f"股息率 {div}（{'有红利防守' if div not in ('暂无','') else '无'}）。\n"
         f"【资金面】当日主力净流入 {cap}，资金{cap_flow_desc}。\n"
@@ -467,7 +488,8 @@ def generate_analysis_text(code: str, name: str, price: float, snap: dict, strat
             llm = make_llm(timeout=_LLM_TIMEOUT, max_tokens=600)
             system = (
                 "你是A股资深分析师。基于给定数据，输出简洁的多维度个股分析，"
-                "必须涵盖：财报面（盈利/估值）、资金面（主力流向）、消息面（舆情）、"
+                "必须涵盖：财报面（盈利/估值，并给出一句基本面总结：良好/中性/承压）、"
+                "资金面（主力流向）、消息面（舆情）、"
                 "盘面与策略，并给出一句风险提示。用中文分点，克制在350字以内，不要寒暄。"
             )
             user = _snapshot_to_text(snap, strategy, price)
