@@ -179,9 +179,12 @@ class RiskManagerAgent:
             is_passed = False
             reject_reasons.append(f"盈亏比不达标 ({rr_ratio:.2f} < 门槛 {strat_config['min_rr_ratio']})")
 
-        if global_env["temperature"] < 25.0 and strategy_key not in ["HIGH_DIVIDEND_LOW_VOL", "MEAN_REVERSION"]:
+        if global_env["temperature"] < float(os.environ.get("RISK_COLD_TEMP_THRESHOLD", "25")) \
+                and strategy_key not in ["HIGH_DIVIDEND_LOW_VOL", "MEAN_REVERSION"]:
             is_passed = False
-            reject_reasons.append("全球宏观风险温度极低，仅允许高股息/防御型策略桶建仓")
+            reject_reasons.append(
+                f"全球宏观风险温度极低({global_env['temperature']:.0f}<"
+                f"{os.environ.get('RISK_COLD_TEMP_THRESHOLD', '25')})，仅允许高股息/防御型策略桶建仓")
 
         status_flag = "✅ 允许建仓" if is_passed else "❌ 风控拦截"
         risk_summary = f"{status_flag} | 建议仓位: `{suggested_pos}%` | 盈亏比: `{rr_ratio:.2f}`"

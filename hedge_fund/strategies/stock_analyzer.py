@@ -366,7 +366,7 @@ def _template_analysis(snap: dict, strategy: str, price: float) -> str:
     if bear:
         msg_bits.append("利空:" + "；".join(bear[:2]))
     if ind:
-        msg_bits.append("行业:" + "；".join(ind[:1]))
+        msg_bits.append("行业:" + "；".join(ind[:2]))
     if msg_bits:
         msg = "｜".join(msg_bits)
     elif news:
@@ -401,10 +401,57 @@ def _template_analysis(snap: dict, strategy: str, price: float) -> str:
         except (ValueError, TypeError):
             cap_flow_desc = "数据暂无"
 
+    # 📉 财务整体是否可得（用于给出明确的降级原因，而不是笼统「暂无」）
+    _fin_keys = ("市盈率(TTM)", "ROE(净资产收益率)", "营收同比", "净利润同比")
+    fin_empty = all(str(fin.get(k, "暂无")) in ("暂无", "-", "", "None") for k in _fin_keys)
+
+    if fin_empty:
+        return (
+            "【财报面】⚠️ 财务数据源暂不可用（本机未取到东财/腾讯财务字段，非个股无数据）。\n"
+            "  可在部署机运行 `python3 hedge_fund/strategies/data_source_doctor.py "
+            f"{snap.get('code', '')} {snap.get('name', '')}` 自检节点连通性。\n"
+            f"【资金面】当日主力净流入 {cap}，资金{cap_flow_desc}。\n"
+            f"【消息面】{msg}。\n"
+            f"【盘面/策略】按「{strategy}」信号入选，现价约 {price}元，注意止损纪律。"
+        )
+
+    # 盈利 / 成长 定性（让财务面不止罗列数字，而有判断）
+    def _num_of(x):
+        try:
+            return float(str(x).replace("%", "").replace(",", ""))
+        except (ValueError, TypeError):
+            return None
+
+    roe_n, rev_n, net_n = _num_of(roe), _num_of(rev_yoy), _num_of(net_yoy)
+    if roe_n is None:
+        profit_desc = "盈利能力待披露"
+    elif roe_n >= 10:
+        profit_desc = "盈利能力优秀"
+    elif roe_n >= 5:
+        profit_desc = "盈利能力一般"
+    else:
+        profit_desc = "盈利能力偏弱"
+
+    if rev_n is not None and net_n is not None:
+        if rev_n > 0 and net_n > 0:
+            grow_desc = "营收净利双增，成长性较好"
+        elif rev_n < 0 and net_n < 0:
+            grow_desc = "营收净利双降，基本面承压"
+        elif rev_n > 0 and net_n < 0:
+            grow_desc = "增收不增利，成本/费用压制利润"
+        else:
+            grow_desc = "增利不增收，增长质量待观察"
+    else:
+        grow_desc = "成长性待观察"
+
+    mcap = str(fin.get("总市值(亿)", "暂无"))
+    mcap_str = f"{mcap}亿" if mcap not in ("暂无", "-", "") else "暂无"
+    pb = fin.get("市净率(PB)", "暂无")
+
     return (
-        f"【财报面】PE {pe}，ROE {roe}，营收同比 {rev_yoy}，净利同比 {net_yoy}，"
-        f"整体{'盈利向好' if net_ok else '需警惕'}。\n"
-        f"【估值/红利】估值水平 {val_level}，"
+        f"【财报面】PE {pe} / PB {pb} / 总市值 {mcap_str}；ROE {roe}，营收同比 {rev_yoy}，净利同比 {net_yoy}。\n"
+        f"  盈利：{profit_desc}；成长：{grow_desc}。\n"
+        f"【估值/红利】估值{val_level}，"
         f"股息率 {div}（{'有红利防守' if div not in ('暂无','') else '无'}）。\n"
         f"【资金面】当日主力净流入 {cap}，资金{cap_flow_desc}。\n"
         f"【消息面】{msg}。\n"

@@ -22,7 +22,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import requests
 
@@ -133,6 +133,10 @@ POSTMORTEM_FILE = "skills_postmortem.md"
 TERMINAL_STATUSES = {"WIN", "LOSS", "WIN_CLOSE", "LOSS_CLOSE", "CLOSED"}
 # 🛑 止损类终态（用于"止损后停止推送"的精确判定）
 STOPLOSS_STATUSES = {"LOSS", "LOSS_CLOSE"}
+
+# 📋 止损整合开关：止损个股统一在【每周五】做一次整合清单推送，
+#    周一~周四不再逐日重复罗列止损清单；此后静默，直到该股重新满足选股策略再次入选。
+STOPLOSS_FRIDAY_DIGEST = os.environ.get("STOPLOSS_FRIDAY_DIGEST", "true").lower() in ("true", "1", "yes")
 
 
 def is_terminal(status) -> bool:
@@ -290,7 +294,22 @@ class EveningReviewAgent:
         local_tracker = self.load_tracker()
 
         # 1. 深度合并本地 JSON 与飞书数据
-        tracker_map = {str(item["code"]).zfill(6): item for item in local_tracker}
+        #    同一 code 可能存在多轮历史记录（反复入选/结案），按「TRACKING 优先 + entry_date 最新」
+        #    取唯一代表，避免复盘/推送取到旧记录造成个股信息串扰或重复。
+        tracker_map: Dict[str, Dict] = {}
+        for item in local_tracker:
+            code = str(item["code"]).zfill(6)
+            cur = tracker_map.get(code)
+            if cur is None:
+                tracker_map[code] = item
+                continue
+            # 新记录更优的判定：TRACKING 状态 > 非TRACKING；同状态则 entry_date 更新者胜出
+            cur_track = str(cur.get("status")) == "TRACKING"
+            new_track = str(item.get("status")) == "TRACKING"
+            if (new_track and not cur_track) or (
+                new_track == cur_track and str(item.get("entry_date") or "") > str(cur.get("entry_date") or "")
+            ):
+                tracker_map[code] = item
 
         for fs_item in feishu_stocks:
             code = fs_item["code"]
@@ -654,6 +673,64 @@ class EveningReviewAgent:
         except Exception as e:
             print(f"❌ 写入 Skill 日志失败: {e}")
 
+    # ==========================================
+    # 📋 本周止损整合清单（周五一次性推送，避免逐日重复刷屏）
+    # ==========================================
+    def _weekly_stoploss_digest(self, all_tracker_data: List[Dict], today: "datetime | None" = None) -> List[str]:
+        """汇总【本周一~今天】触发的止损个股，仅在周五推送一次。
+
+        设计依据（用户需求）：
+          1) 止损个股统一在当周周五做一次整合推送，不再逐日重复罗列；
+          2) 下周一起对这些个股静默，不再重复推送止损；
+          3) 只有当该股重新满足选股策略、被早盘重新注册为 TRACKING 时，才恢复提示。
+        """
+        if not STOPLOSS_FRIDAY_DIGEST or (today or datetime.now()).weekday() != 4:
+            return []
+        today = today or datetime.now()
+        monday = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
+        today_s = today.strftime("%Y-%m-%d")
+
+        seen, rows = set(), []
+        for x in all_tracker_data or []:
+            st = str(x.get("status", "")).upper()
+            if st not in STOPLOSS_STATUSES:
+                continue
+            cd = str(x.get("close_date") or "")[:10]
+            if not cd or cd < monday or cd > today_s:
+                continue
+            code = str(x.get("code", "")).zfill(6)
+            if code in seen:
+                continue
+            seen.add(code)
+            try:
+                entry = float(x.get("entry_price") or 0)
+                last = float(x.get("last_price") or 0)
+            except (TypeError, ValueError):
+                entry = last = 0.0
+            ret = ((last - entry) / entry * 100) if entry > 0 else 0.0
+            rows.append({
+                "code": code, "name": x.get("name", ""),
+                "strategy": x.get("strategy", "综合选股"),
+                "entry": entry, "last": last, "ret": ret, "date": cd,
+            })
+
+        if not rows:
+            return []
+
+        rows.sort(key=lambda r: r["ret"])  # 亏损最大的排前面，便于复盘
+        out = [
+            f"📋 **【本周止损整合清单】** ({monday} ~ {today_s}，共 **{len(rows)}** 只)",
+            "-----------------------------------",
+        ]
+        for i, r in enumerate(rows, 1):
+            out.append(
+                f"{i}. **{r['name']}** (`{r['code']}`) | {r['strategy']} | "
+                f"成本 `{r['entry']:.2f}` → `{r['last']:.2f}` (`{r['ret']:+.2f}%`) | 触发 {r['date']}"
+            )
+        out.append("")
+        out.append("💡 *以上个股已归档静默：下周一起不再重复推送止损；若重新满足选股策略入选，将重新提示。*")
+        return out
+
     def push_wechat_summary(self, summary_list: List[Dict], all_tracker_data: List[Dict]):
         if not WECHAT_WEBHOOK or not summary_list:
             return
@@ -695,8 +772,11 @@ class EveningReviewAgent:
 
         for page, i in enumerate(range(0, len(summary_list), chunk_size), 1):
             chunk = summary_list[i:i + chunk_size]
+            # 📌 段首显式列出本段个股，避免多段推送内容相似、分不清是哪只
+            seg_names = " ｜ ".join(f"{x['name']}(`{x['code']}`)" for x in chunk)
             lines = [
                 f"🌙 **【晚间复盘总览】** ({today_str}) [{page}/{total_chunks}]",
+                f"📌 本段个股：{seg_names}",
                 f"-----------------------------------",
             ]
 
@@ -739,16 +819,30 @@ class EveningReviewAgent:
             lines.append("-----------------------------------")
 
             if page == total_chunks:
-                if closed_today:
-                    lines.append("🚨 **【今日抛售提醒清单】**")
-                    for s in closed_today:
-                        lines.append(f"• `{s['code']}` {s['name']} — **{s['status']}** | {s['reason']}")
+                # 🛑 止损清单不再逐日重复罗列（旧逻辑每日列几十只，重复刷屏）。
+                #    改为：周五统一推「本周止损整合清单」，周一~周四静默；
+                #    止损当天仅在本段正文以「🚨 今日触发离场」标注一次。
+                weekly_digest = self._weekly_stoploss_digest(all_tracker_data)
+                if weekly_digest:
+                    lines.extend(weekly_digest)
                     lines.append("")
+                elif closed_today:
+                    lines.append(
+                        f"🚨 **今日新增离场 {len(closed_today)} 只**（已在正文标注）："
+                        + "、".join(f"{s['name']}(`{s['code']}`)" for s in closed_today)
+                    )
+                    lines.append("💡 *本周止损将于周五统一整合推送，期间不再逐日重复。*")
+                    lines.append("")
+
+                # 📊 持仓强弱：仅列 Top5 + 计数，避免与正文重复罗列几十只股票名
+                def _top(lst, n=5):
+                    lst = sorted(lst, key=lambda x: -abs(float(x.get("ret_pct") or 0)))[:n]
+                    return "、".join(f"{x['name']}(`{x['code']}`)" for x in lst) or "无"
 
                 lines.append("📊 **【持仓强弱筛选】**\n")
                 lines.append(f"• 📈 **当前活跃持仓平均收益率**: `{avg_ret:+.2f}%`")
-                lines.append(f"• 💪 **建议持有(强势标的)**: {', '.join([s['name'] for s in strong_stocks]) or '无'}")
-                lines.append(f"• ⚠️ **建议防守(弱势跟踪中)**: {', '.join([s['name'] for s in weak_stocks]) or '无'}\n")
+                lines.append(f"• 💪 **强势 {len(strong_stocks)} 只**（前5）: {_top(strong_stocks)}")
+                lines.append(f"• ⚠️ **弱势 {len(weak_stocks)} 只**（前5）: {_top(weak_stocks)}\n")
 
                 # 🧠 真实胜率 + 数据驱动归因（来自自动升级的 Skill 引擎）
                 if skill_summary:
